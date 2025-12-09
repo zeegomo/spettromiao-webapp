@@ -59,6 +59,10 @@ const state = {
 
     // Blob URL cache (for cleanup)
     blobUrls: [],
+
+    // Pi connectivity state
+    piConnected: false,
+    piCheckInterval: null,
 };
 
 // ============================================================================
@@ -69,6 +73,7 @@ const elements = {
     // Header
     menuBtn: document.getElementById('menuBtn'),
     settingsBtn: document.getElementById('settingsBtn'),
+    piWarningBanner: document.getElementById('piWarningBanner'),
 
     // Wizard Steps
     stepItems: document.querySelectorAll('.step'),
@@ -167,13 +172,28 @@ const elements = {
 // ============================================================================
 
 const api = {
+    async fetchWithTimeout(url, options = {}, timeout = 5000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal,
+            });
+            return response;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
+
     async get(endpoint) {
-        const response = await fetch(`${PI_API_URL}/api${endpoint}`);
+        const response = await this.fetchWithTimeout(`${PI_API_URL}/api${endpoint}`);
         return response.json();
     },
 
     async post(endpoint, data = {}) {
-        const response = await fetch(`${PI_API_URL}/api${endpoint}`, {
+        const response = await this.fetchWithTimeout(`${PI_API_URL}/api${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
@@ -188,6 +208,44 @@ const api = {
     async stopPreview() { return this.post('/preview/stop'); },
     async getPreviewStatus() { return this.get('/preview/status'); },
 };
+
+// ============================================================================
+// Pi Connectivity
+// ============================================================================
+
+async function checkPiConnectivity() {
+    try {
+        await api.getSettings();
+        if (!state.piConnected) {
+            state.piConnected = true;
+            updatePiConnectionUI();
+            // Slow down polling when connected
+            restartPiCheckInterval(10000);
+        }
+    } catch (error) {
+        if (state.piConnected !== false) {
+            state.piConnected = false;
+            updatePiConnectionUI();
+            // Speed up polling when disconnected
+            restartPiCheckInterval(2000);
+        }
+    }
+}
+
+function restartPiCheckInterval(intervalMs) {
+    if (state.piCheckInterval) {
+        clearInterval(state.piCheckInterval);
+    }
+    state.piCheckInterval = setInterval(checkPiConnectivity, intervalMs);
+}
+
+function updatePiConnectionUI() {
+    if (state.piConnected) {
+        elements.piWarningBanner.classList.add('hidden');
+    } else {
+        elements.piWarningBanner.classList.remove('hidden');
+    }
+}
 
 // ============================================================================
 // Theme
@@ -236,6 +294,10 @@ function goToStep(stepNumber) {
 function canProceedFromStep(step) {
     switch (step) {
         case 1:
+            // Require Pi connection to proceed to Step 2
+            if (!state.piConnected) {
+                return false;
+            }
             return validateStep1();
         case 2:
             return state.stepValidation.step2;
@@ -541,6 +603,14 @@ function handleSubstanceDescChange() {
 }
 
 async function handleStep1Next() {
+    // Check Pi connection first
+    if (!state.piConnected) {
+        // Shake the banner to draw attention
+        elements.piWarningBanner.classList.add('shake');
+        setTimeout(() => elements.piWarningBanner.classList.remove('shake'), 300);
+        return;
+    }
+
     if (validateStep1()) {
         await saveSession();
         goToStep(2);
@@ -1117,13 +1187,15 @@ async function loadSettings() {
         state.settings = await db.getSettings();
         updateSettingsUI();
 
-        // Sync camera settings to Pi
+        // Sync camera settings to Pi (non-blocking, don't await)
         const cameraSettings = state.settings.cameraSettings || {};
-        await api.updateSettings({
+        api.updateSettings({
             shutter: cameraSettings.shutter || 5.0,
             gain: cameraSettings.gain || 100,
             laser_auto_detect: cameraSettings.laserAutoDetect !== false,
             laser_wavelength: cameraSettings.laserWavelength || 785,
+        }).catch(error => {
+            console.warn('Could not sync settings to Pi:', error.message);
         });
 
     } catch (error) {
@@ -1493,15 +1565,21 @@ async function init() {
     // Initialize IndexedDB
     await db.openDB();
 
+    // Setup event listeners early - before any network calls that might block
+    // Note: handlers access state.session but only fire on user interaction,
+    // which happens after loadSession() completes below
+    setupEventListeners();
+
+    // Check Pi connectivity immediately (starts with 2s polling until connected)
+    checkPiConnectivity();
+    state.piCheckInterval = setInterval(checkPiConnectivity, 2000);
+
     // Load settings and apply theme
     await loadSettings();
     setTheme(state.settings?.theme !== 'light');
 
-    // Load session (must happen before setupEventListeners so state.session is populated)
+    // Load session
     await loadSession();
-
-    // Setup event listeners after session is loaded to prevent race condition
-    setupEventListeners();
 
     // Load sync status
     await loadSyncStatus();

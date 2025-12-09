@@ -158,6 +158,62 @@ body {
 }
 
 /* ============================================================================
+   Pi Connection Warning Banner
+   ============================================================================ */
+
+.pi-warning-banner {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    border-bottom: 1px solid #fcd34d;
+}
+
+[data-theme="dark"] .pi-warning-banner {
+    background: #422006;
+    color: #fcd34d;
+    border-color: #854d0e;
+}
+
+.pi-warning-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.pi-warning-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pi-warning-title {
+    font-weight: 600;
+}
+
+.pi-warning-instructions {
+    font-size: 13px;
+    opacity: 0.9;
+}
+
+.pi-warning-banner.hidden {
+    display: none;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+.pi-warning-banner.shake {
+    animation: shake 0.3s ease-in-out;
+}
+
+/* ============================================================================
    Main Content
    ============================================================================ */
 
