@@ -1,0 +1,6 @@
+{
+    "version": "0.0.0",
+    "wavelengthAxis": null,
+    "substances": [],
+    "_comment": "Placeholder library. Generate with scripts/build_browser_library.py"
+}

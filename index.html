@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0a0a0a" id="themeColor">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="KAT">
+    <meta name="description" content="Mobile Raman spectrometer for substance identification">
+    <title>KAT Spectrometer</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+        <h1>KAT Spectrometer</h1>
+        <div class="header-actions">
+            <button class="sync-indicator" id="syncIndicator" aria-label="Sync status" title="Sync status">
+                <span class="sync-icon">↻</span>
+                <span class="sync-badge hidden" id="syncBadge">0</span>
+            </button>
+            <button class="settings-btn" id="settingsBtn" aria-label="Settings">⚙</button>
+        </div>
+    </header>
+
+    <!-- Wizard Step Indicator -->
+    <nav class="wizard-steps">
+        <ol class="step-list">
+            <li class="step active" data-step="1">
+                <span class="step-number">1</span>
+                <span class="step-label">Test Info</span>
+            </li>
+            <li class="step" data-step="2">
+                <span class="step-number">2</span>
+                <span class="step-label">Calibration</span>
+            </li>
+            <li class="step" data-step="3">
+                <span class="step-number">3</span>
+                <span class="step-label">Capture</span>
+            </li>
+        </ol>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main">
+        <!-- Step 1: Test Info -->
+        <section class="wizard-step" id="step1" data-step="1">
+            <h2>Test Information</h2>
+
+            <div class="form-group">
+                <label for="eventNameInput">
+                    <span>Event name <span class="required">*</span></span>
+                </label>
+                <input type="text" id="eventNameInput" placeholder="e.g. Field Test #42" required>
+            </div>
+
+            <div class="form-group">
+                <label for="substanceInput">
+                    <span>Substance <span class="required">*</span></span>
+                </label>
+                <input type="text" id="substanceInput" list="substanceList" placeholder="Start typing..." autocomplete="off" required>
+                <datalist id="substanceList"></datalist>
+            </div>
+
+            <div class="form-group">
+                <label for="appearanceSelect">
+                    <span>Appearance <span class="required">*</span></span>
+                </label>
+                <select id="appearanceSelect">
+                    <option value="">-- Select appearance --</option>
+                    <option value="powder">Powder</option>
+                    <option value="crystal">Crystal</option>
+                    <option value="liquid">Liquid</option>
+                    <option value="pill">Pill/Tablet</option>
+                    <option value="capsule">Capsule</option>
+                    <option value="rock">Rock/Chunk</option>
+                    <option value="paste">Paste</option>
+                    <option value="paper">Paper/Blotter</option>
+                    <option value="other">Other (specify)</option>
+                </select>
+            </div>
+
+            <div class="form-group hidden" id="customAppearanceGroup">
+                <label for="customAppearanceInput">
+                    <span>Custom appearance</span>
+                </label>
+                <input type="text" id="customAppearanceInput" placeholder="Describe appearance...">
+            </div>
+
+            <div class="form-group hidden" id="substanceDescGroup">
+                <label for="substanceDescInput">
+                    <span>Substance description <span class="required">*</span></span>
+                </label>
+                <textarea id="substanceDescInput" rows="2" placeholder="Describe the pill, capsule, or blotter..."></textarea>
+            </div>
+
+            <div class="form-group hidden" id="substancePhotoGroup">
+                <label>
+                    <span>Photo of substance (optional)</span>
+                </label>
+                <div class="photo-input-container">
+                    <input type="file" id="substancePhotoInput" accept="image/*" capture="environment" class="hidden">
+                    <button type="button" id="takePhotoBtn" class="btn">Take Photo</button>
+                    <button type="button" id="removePhotoBtn" class="btn btn-small hidden">Remove</button>
+                </div>
+                <div id="substancePhotoPreview" class="photo-preview hidden">
+                    <img id="substancePhotoImg" src="" alt="Substance photo">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="notesInput">
+                    <span>Notes (optional)</span>
+                </label>
+                <textarea id="notesInput" rows="2" placeholder="Additional observations..."></textarea>
+            </div>
+
+            <div class="wizard-nav">
+                <button id="step1NextBtn" class="btn btn-primary" disabled>Next</button>
+            </div>
+        </section>
+
+        <!-- Step 2: Calibration Check -->
+        <section class="wizard-step hidden" id="step2" data-step="2">
+            <h2>Calibration Check</h2>
+            <p class="step-instructions">Verify the laser line is visible and calibration looks correct.</p>
+
+            <div class="preview-section-step2">
+                <div class="preview-container">
+                    <img id="previewImage" src="" alt="Camera Preview" class="preview-image hidden">
+                    <div id="previewPlaceholder" class="preview-placeholder">
+                        <span>Camera feed</span>
+                        <small>Tap Start to begin</small>
+                    </div>
+                </div>
+                <div class="preview-controls">
+                    <button id="startPreviewBtn" class="btn btn-secondary">Start</button>
+                    <button id="stopPreviewBtn" class="btn btn-secondary hidden">Stop</button>
+                    <span id="previewStatus" class="status-text"></span>
+                </div>
+            </div>
+
+            <div id="calibrationStatus" class="calibration-status">
+                Checking calibration...
+            </div>
+
+            <div class="wizard-nav">
+                <button id="step2BackBtn" class="btn btn-secondary">Back</button>
+                <button id="step2ConfirmBtn" class="btn btn-primary">Confirm Calibration</button>
+            </div>
+        </section>
+
+        <!-- Step 3: Capture -->
+        <section class="wizard-step hidden" id="step3" data-step="3">
+            <h2>Capture Spectrum</h2>
+
+            <!-- Capture Controls -->
+            <div class="capture-section">
+                <button id="captureBtn" class="capture-btn">
+                    Capture
+                </button>
+                <div class="capture-info">
+                    <div class="inline-setting" id="shutterSetting">
+                        <span id="shutterDisplay" class="setting-value">5.0s</span>
+                        <div class="setting-popup hidden" id="shutterPopup">
+                            <label class="popup-label">Shutter (seconds)</label>
+                            <input type="range" id="shutterSlider" min="0.1" max="10" step="0.1" value="5">
+                        </div>
+                    </div>
+                    <span class="separator">·</span>
+                    <div class="inline-setting" id="gainSetting">
+                        <span id="gainDisplay" class="setting-value">gain 100</span>
+                        <div class="setting-popup hidden" id="gainPopup">
+                            <label class="popup-label">Gain</label>
+                            <input type="range" id="gainSlider" min="1" max="200" step="1" value="100">
+                        </div>
+                    </div>
+                </div>
+                <div id="progressContainer" class="progress-container hidden">
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <span id="progressText" class="progress-text">Capturing...</span>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <section id="resultsSection" class="results-section hidden">
+                <h3>Result</h3>
+                <div class="result-card">
+                    <img id="resultThumb" src="" alt="Result" class="result-thumb">
+                    <div class="result-info">
+                        <span id="resultSubstance" class="result-substance">-</span>
+                        <span id="resultScore" class="result-score">score: -</span>
+                        <span id="resultTime" class="result-time">-</span>
+                    </div>
+                </div>
+                <div class="result-actions">
+                    <button id="viewPlotBtn" class="btn btn-small">View Summary</button>
+                    <button id="viewMatchesBtn" class="btn btn-small hidden">View Matches</button>
+                    <button id="downloadCsvBtn" class="btn btn-small">Download CSV</button>
+                </div>
+            </section>
+
+            <!-- Gallery Section (collapsible) -->
+            <section class="gallery-section-collapsible">
+                <button class="section-toggle" id="galleryToggle">
+                    <span class="toggle-icon">▶</span> Gallery <span id="galleryCount">(0)</span>
+                </button>
+                <div class="gallery-content hidden" id="galleryContent">
+                    <div id="galleryContainer" class="gallery-container">
+                        <div class="gallery-empty">No acquisitions yet</div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="wizard-nav">
+                <button id="step3BackBtn" class="btn btn-secondary">Back</button>
+                <button id="newTestBtn" class="btn btn-secondary">New Test</button>
+                <button id="exportBtn" class="btn btn-primary" disabled>Export</button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Settings Panel (slide-in) -->
+    <div id="settingsPanel" class="settings-panel">
+        <div class="settings-header">
+            <h2>Settings</h2>
+            <button id="closeSettingsBtn" class="close-btn" aria-label="Close">×</button>
+        </div>
+        <div class="settings-content">
+            <!-- Display Settings -->
+            <div class="settings-group">
+                <h3>Display</h3>
+                <label class="toggle-row">
+                    <span>Dark mode</span>
+                    <input type="checkbox" id="darkModeToggle" checked>
+                </label>
+            </div>
+
+            <!-- Spectrum Settings -->
+            <div class="settings-group">
+                <h3>Spectrum</h3>
+                <label class="toggle-row">
+                    <span>Auto-detect laser</span>
+                    <input type="checkbox" id="laserAutoDetect" checked>
+                </label>
+                <label id="laserWavelengthLabel">
+                    <span>Laser wavelength (nm)</span>
+                    <input type="number" id="laserWavelength" min="0" max="2000" step="0.1" value="785">
+                </label>
+            </div>
+
+            <!-- Sync Settings -->
+            <div class="settings-group">
+                <h3>Remote Sync</h3>
+                <label>
+                    <span>Server URL</span>
+                    <input type="url" id="syncServerUrl" placeholder="https://kat.example.com">
+                </label>
+                <label>
+                    <span>API Token</span>
+                    <input type="password" id="syncToken" placeholder="Paste token here...">
+                    <small id="syncTokenStatus" class="sync-token-status">No token configured</small>
+                </label>
+                <label class="toggle-row">
+                    <span>Auto-sync when online</span>
+                    <input type="checkbox" id="autoSyncToggle">
+                </label>
+                <div class="sync-actions">
+                    <button id="testSyncBtn" class="btn btn-small">Test Connection</button>
+                    <button id="syncNowBtn" class="btn btn-small">Sync Now</button>
+                </div>
+                <div id="syncStatus" class="sync-status">
+                    <span id="pendingCount">0 pending</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay for settings panel -->
+    <div id="overlay" class="overlay hidden"></div>
+
+    <!-- Plot Modal -->
+    <div id="plotModal" class="modal hidden">
+        <div class="modal-content">
+            <button class="modal-close" id="closePlotModal">×</button>
+            <img id="plotImage" src="" alt="Spectrum Plot">
+        </div>
+    </div>
+
+    <!-- External dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- App modules (order matters: db -> identifier -> sync -> app) -->
+    <script src="js/db.js"></script>
+    <script src="js/identifier.js"></script>
+    <script src="js/sync.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
