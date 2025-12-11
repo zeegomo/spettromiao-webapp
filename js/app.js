@@ -215,19 +215,20 @@ const api = {
         return response.json();
     },
 
-    async post(endpoint, data = {}) {
+    async post(endpoint, data = {}, timeout = 5000) {
         const response = await this.fetchWithTimeout(`${PI_API_URL}/api${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
-        });
+        }, timeout);
         return response.json();
     },
 
     async getSettings() { return this.get('/settings'); },
     async updateSettings(settings) { return this.post('/settings', settings); },
     async getCalibrationStatus() { return this.get('/calibration'); },
-    async startPreview() { return this.post('/preview/start'); },
+    // Use 20s timeout for preview start (camera initialization takes time)
+    async startPreview() { return this.post('/preview/start', {}, 20000); },
     async stopPreview() { return this.post('/preview/stop'); },
     async getPreviewStatus() { return this.get('/preview/status'); },
 };
