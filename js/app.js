@@ -184,13 +184,27 @@ const api = {
     async fetchWithTimeout(url, options = {}, timeout = 5000) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
+        const method = options.method || 'GET';
+
+        console.log(`API ${method} ${url}`);
 
         try {
             const response = await fetch(url, {
                 ...options,
                 signal: controller.signal,
             });
+            console.log(`API ${method} ${url} -> ${response.status}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
             return response;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.error(`API ${method} ${url} -> TIMEOUT`);
+                throw new Error('Request timed out');
+            }
+            console.error(`API ${method} ${url} -> ERROR:`, error.message);
+            throw error;
         } finally {
             clearTimeout(timeoutId);
         }
@@ -631,9 +645,25 @@ async function handleStep1Next() {
 // ============================================================================
 
 async function startPreview() {
+    console.log('Starting preview...');
     try {
-        await api.startPreview();
+        const response = await api.startPreview();
+        console.log('Start preview response:', response);
+
+        if (response.status === 'error') {
+            console.error('Backend error:', response.message);
+            elements.previewStatus.textContent = `Error: ${response.message}`;
+            return;
+        }
+
         state.previewActive = true;
+
+        // Add error handler for stream loading failures
+        elements.previewImage.onerror = (e) => {
+            console.error('Preview stream error:', e);
+            elements.previewStatus.textContent = 'Stream failed to load';
+            resetPreviewUI();
+        };
 
         elements.previewImage.src = `${PI_API_URL}/api/preview/stream`;
         elements.previewImage.classList.remove('hidden');
@@ -644,24 +674,28 @@ async function startPreview() {
         pollPreviewStatus();
     } catch (error) {
         console.error('Failed to start preview:', error);
-        elements.previewStatus.textContent = 'Error starting preview';
+        elements.previewStatus.textContent = `Error: ${error.message}`;
+        resetPreviewUI();
     }
 }
 
 async function stopPreview() {
     try {
         await api.stopPreview();
-        state.previewActive = false;
-
-        elements.previewImage.src = '';
-        elements.previewImage.classList.add('hidden');
-        elements.previewPlaceholder.classList.remove('hidden');
-        elements.startPreviewBtn.classList.remove('hidden');
-        elements.stopPreviewBtn.classList.add('hidden');
-        elements.previewStatus.textContent = '';
+        resetPreviewUI();
     } catch (error) {
         console.error('Failed to stop preview:', error);
     }
+}
+
+function resetPreviewUI() {
+    state.previewActive = false;
+    elements.previewImage.src = '';
+    elements.previewImage.classList.add('hidden');
+    elements.previewPlaceholder.classList.remove('hidden');
+    elements.startPreviewBtn.classList.remove('hidden');
+    elements.stopPreviewBtn.classList.add('hidden');
+    elements.previewStatus.textContent = '';
 }
 
 async function pollPreviewStatus() {
@@ -669,14 +703,20 @@ async function pollPreviewStatus() {
 
     try {
         const status = await api.getPreviewStatus();
+        console.log('Preview status:', status);
         if (status.streaming) {
             elements.previewStatus.textContent = `${status.fps} FPS`;
         } else {
-            elements.previewStatus.textContent = 'Stopped';
-            state.previewActive = false;
+            console.warn('Stream stopped unexpectedly');
+            elements.previewStatus.textContent = 'Stream stopped';
+            resetPreviewUI();
+            return;  // Stop polling
         }
     } catch (error) {
         console.error('Status poll error:', error);
+        elements.previewStatus.textContent = 'Connection error';
+        resetPreviewUI();
+        return;  // Stop polling
     }
 
     if (state.previewActive) {
