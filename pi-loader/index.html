@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>KAT Spectrometer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .loader { text-align: center; }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #333;
+            border-top-color: #f5f5f5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status { color: #999; font-size: 14px; }
+        .error { color: #ef4444; margin-top: 10px; }
+        .retry-btn {
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #333;
+            border: none;
+            color: #f5f5f5;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .retry-btn:active { background: #444; }
+    </style>
+</head>
+<body>
+    <div class="loader">
+        <div class="spinner" id="spinner"></div>
+        <div class="status" id="status">Loading KAT Spectrometer...</div>
+        <div class="error" id="error"></div>
+        <button class="retry-btn" id="retryBtn" style="display:none" onclick="loadApp()">Retry</button>
+    </div>
+
+    <script>
+        /**
+         * KAT Loader - Fetches the app from GitHub and caches locally
+         *
+         * This file should be served by the Raspberry Pi.
+         * It fetches the latest app from GitHub Pages when internet is available,
+         * caches it in IndexedDB, and falls back to cache when offline.
+         */
+
+        // IMPORTANT: Update this to your GitHub Pages URL
+        const GITHUB_BASE = 'https://zeegomo.github.io/kat-webapp';
+        const CACHE_DB_NAME = 'kat-loader-cache';
+        const CACHE_STORE_NAME = 'app-files';
+        const CACHE_VERSION_KEY = 'cache-version';
+
+        // Files to fetch from GitHub
+        const APP_FILES = [
+            'index.html',
+            'css/style.css',
+            'js/db.js',
+            'js/identifier.js',
+            'js/sync.js',
+            'js/app.js',
+            'manifest.json',
+            'sw.js',
+            'data/library.json'
+        ];
+
+        const statusEl = document.getElementById('status');
+        const errorEl = document.getElementById('error');
+        const spinnerEl = document.getElementById('spinner');
+        const retryBtn = document.getElementById('retryBtn');
+
+        // IndexedDB helpers
+        function openCacheDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(CACHE_DB_NAME, 1);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
+                        db.createObjectStore(CACHE_STORE_NAME, { keyPath: 'path' });
+                    }
+                };
+            });
+        }
+
+        async function getCachedFile(db, path) {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(CACHE_STORE_NAME, 'readonly');
+                const store = tx.objectStore(CACHE_STORE_NAME);
+                const request = store.get(path);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result?.content);
+            });
+        }
+
+        async function setCachedFile(db, path, content) {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(CACHE_STORE_NAME, 'readwrite');
+                const store = tx.objectStore(CACHE_STORE_NAME);
+                const request = store.put({ path, content, timestamp: Date.now() });
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve();
+            });
+        }
+
+        async function fetchWithTimeout(url, timeout = 10000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            try {
+                const response = await fetch(url, { signal: controller.signal });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.text();
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
+
+        async function loadApp() {
+            statusEl.textContent = 'Loading KAT Spectrometer...';
+            errorEl.textContent = '';
+            spinnerEl.style.display = 'block';
+            retryBtn.style.display = 'none';
+
+            let db;
+            try {
+                db = await openCacheDB();
+            } catch (e) {
+                showError('Failed to open cache database');
+                return;
+            }
+
+            let files = {};
+            let fromCache = false;
+
+            // Try to fetch from GitHub
+            try {
+                statusEl.textContent = 'Checking for updates...';
+
+                // Fetch version file first to check if update needed
+                let remoteVersion = null;
+                try {
+                    remoteVersion = await fetchWithTimeout(`${GITHUB_BASE}/version.txt?t=${Date.now()}`, 5000);
+                    remoteVersion = remoteVersion.trim();
+                } catch (e) {
+                    // Version file not found, continue anyway
+                }
+
+                const cachedVersion = await getCachedFile(db, CACHE_VERSION_KEY);
+
+                // If versions match and we have cache, use cache
+                if (remoteVersion && cachedVersion === remoteVersion) {
+                    statusEl.textContent = 'Loading from cache...';
+                    fromCache = true;
+                } else {
+                    // Fetch all files from GitHub
+                    statusEl.textContent = 'Downloading latest version...';
+
+                    const fetchPromises = APP_FILES.map(async (path) => {
+                        const content = await fetchWithTimeout(`${GITHUB_BASE}/${path}?t=${Date.now()}`);
+                        files[path] = content;
+                        await setCachedFile(db, path, content);
+                    });
+
+                    await Promise.all(fetchPromises);
+
+                    // Save version
+                    if (remoteVersion) {
+                        await setCachedFile(db, CACHE_VERSION_KEY, remoteVersion);
+                    }
+
+                    statusEl.textContent = 'Starting app...';
+                }
+            } catch (e) {
+                console.warn('Failed to fetch from GitHub, trying cache:', e.message);
+                fromCache = true;
+            }
+
+            // Load from cache if needed
+            if (fromCache) {
+                try {
+                    statusEl.textContent = 'Loading from cache...';
+                    for (const path of APP_FILES) {
+                        const content = await getCachedFile(db, path);
+                        if (content) {
+                            files[path] = content;
+                        }
+                    }
+                } catch (e) {
+                    showError('Failed to load from cache');
+                    return;
+                }
+            }
+
+            // Check we have the essential files
+            if (!files['index.html'] || !files['js/app.js'] || !files['css/style.css']) {
+                showError('App not cached. Please connect to the internet to download.');
+                return;
+            }
+
+            // Render the app
+            renderApp(files);
+        }
+
+        function renderApp(files) {
+            // Parse the HTML
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(files['index.html'], 'text/html');
+
+            // Inline the CSS
+            const styleLinks = doc.querySelectorAll('link[rel="stylesheet"]');
+            styleLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                const cssPath = href.startsWith('./') ? href.slice(2) : href;
+                if (files[cssPath]) {
+                    const style = doc.createElement('style');
+                    style.textContent = files[cssPath];
+                    link.replaceWith(style);
+                }
+            });
+
+            // Inline the JavaScript
+            const scripts = doc.querySelectorAll('script[src]');
+            scripts.forEach(script => {
+                const src = script.getAttribute('src');
+                const jsPath = src.startsWith('./') ? src.slice(2) : src;
+                if (files[jsPath]) {
+                    const newScript = doc.createElement('script');
+                    newScript.textContent = files[jsPath];
+                    script.replaceWith(newScript);
+                }
+            });
+
+            // Update manifest link to inline data URL
+            if (files['manifest.json']) {
+                const manifestLink = doc.querySelector('link[rel="manifest"]');
+                if (manifestLink) {
+                    const dataUrl = 'data:application/json,' + encodeURIComponent(files['manifest.json']);
+                    manifestLink.setAttribute('href', dataUrl);
+                }
+            }
+
+            // Write the complete document
+            document.open();
+            document.write(doc.documentElement.outerHTML);
+            document.close();
+        }
+
+        function showError(message) {
+            spinnerEl.style.display = 'none';
+            statusEl.textContent = 'Failed to load app';
+            errorEl.textContent = message;
+            retryBtn.style.display = 'block';
+        }
+
+        // Start loading
+        loadApp();
+    </script>
+</body>
+</html>
