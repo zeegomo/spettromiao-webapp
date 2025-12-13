@@ -102,6 +102,7 @@ body {
     cursor: pointer;
     font-family: inherit;
     font-size: 1.25rem;
+    touch-action: manipulation;
 }
 
 .menu-btn:active, .settings-btn:active {
@@ -123,6 +124,7 @@ body {
     cursor: pointer;
     font-family: inherit;
     font-size: 1.25rem;
+    touch-action: manipulation;
 }
 
 .sync-indicator:active {
@@ -701,6 +703,7 @@ body {
     cursor: pointer;
     min-height: 48px;
     transition: box-shadow 0.15s ease, transform 0.15s ease;
+    touch-action: manipulation;
 }
 
 .btn:hover:not(:disabled) {
