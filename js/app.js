@@ -854,14 +854,34 @@ async function capture() {
 
     let eventSource = null;
     let captureTimeout = null;
+    let exposureTimer = null;
+    const shutterTime = state.settings?.cameraSettings?.shutter || 5.0;
 
     const cleanup = () => {
         if (captureTimeout) clearTimeout(captureTimeout);
+        if (exposureTimer) clearInterval(exposureTimer);
         if (eventSource) eventSource.close();
     };
 
     try {
         eventSource = new EventSource(`${PI_API_URL}/api/capture`);
+
+        // Start exposure progress animation
+        const exposureStartTime = Date.now();
+        const exposureDurationMs = shutterTime * 1000;
+        const startProgress = 10;
+        const endProgress = 35;
+
+        elements.progressFill.style.width = `${startProgress}%`;
+        exposureTimer = setInterval(() => {
+            const elapsed = Date.now() - exposureStartTime;
+            const fraction = Math.min(elapsed / exposureDurationMs, 1);
+            const currentProgress = startProgress + (endProgress - startProgress) * fraction;
+            elements.progressFill.style.width = `${currentProgress}%`;
+
+            const remaining = Math.max(0, shutterTime - (elapsed / 1000));
+            elements.progressText.textContent = `Exposing... ${remaining.toFixed(1)}s`;
+        }, 100);
 
         // Timeout after 30 seconds if no result
         captureTimeout = setTimeout(() => {
@@ -870,6 +890,11 @@ async function capture() {
         }, 30000);
 
         eventSource.addEventListener('progress', (event) => {
+            // Clear exposure timer when backend takes over
+            if (exposureTimer) {
+                clearInterval(exposureTimer);
+                exposureTimer = null;
+            }
             const data = JSON.parse(event.data);
             elements.progressFill.style.width = `${data.progress}%`;
             elements.progressText.textContent = data.message;
