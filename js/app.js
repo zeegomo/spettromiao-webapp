@@ -1580,7 +1580,7 @@ const VERSION_CONFIG = {
 };
 
 // Files to fetch from GitHub for updates (must match pi-loader)
-const APP_FILES = [
+const UPDATE_APP_FILES = [
     'index.html',
     'css/style.css',
     'js/db.js',
@@ -1697,7 +1697,7 @@ async function triggerUpdate() {
         const files = {};
 
         // Fetch all files from GitHub
-        const fetchPromises = APP_FILES.map(async (path) => {
+        const fetchPromises = UPDATE_APP_FILES.map(async (path) => {
             const response = await fetch(
                 `${VERSION_CONFIG.githubBase}/${path}?t=${Date.now()}`,
                 { signal: AbortSignal.timeout(30000) }
