@@ -72,7 +72,7 @@ const state = {
     blobUrls: [],
 
     // Pi connectivity state
-    piConnected: false,
+    piConnected: null,
     piCheckInterval: null,
 };
 
@@ -646,6 +646,7 @@ function handleSubstanceDescChange() {
 async function handleStep1Next() {
     // Check Pi connection first
     if (!state.piConnected) {
+        elements.piWarningBanner.classList.remove('hidden');
         // Shake the banner to draw attention
         elements.piWarningBanner.classList.add('shake');
         setTimeout(() => elements.piWarningBanner.classList.remove('shake'), 300);
@@ -1201,6 +1202,126 @@ function updateExportButton() {
 }
 
 // ============================================================================
+// ZIP Export (no external deps)
+// ============================================================================
+
+let zipCrc32Table = null;
+
+function getZipCrc32Table() {
+    if (zipCrc32Table) return zipCrc32Table;
+
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let crc = i;
+        for (let bit = 0; bit < 8; bit++) {
+            crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1);
+        }
+        table[i] = crc >>> 0;
+    }
+
+    zipCrc32Table = table;
+    return table;
+}
+
+function crc32(data) {
+    const table = getZipCrc32Table();
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < data.length; i++) {
+        crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dateToDosDateTime(date) {
+    const year = Math.min(2107, Math.max(1980, date.getFullYear()));
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const seconds = Math.floor(date.getSeconds() / 2);
+
+    const dosTime = (hours << 11) | (minutes << 5) | seconds;
+    const dosDate = ((year - 1980) << 9) | (month << 5) | day;
+
+    return { dosTime, dosDate };
+}
+
+function buildZipBlob(entries) {
+    const encoder = new TextEncoder();
+    const { dosTime, dosDate } = dateToDosDateTime(new Date());
+
+    let offset = 0;
+    const localParts = [];
+    const centralParts = [];
+    let centralSize = 0;
+
+    for (const entry of entries) {
+        const nameBytes = encoder.encode(entry.name);
+        const dataBytes = entry.data;
+        const checksum = crc32(dataBytes);
+
+        // Local file header
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        const localView = new DataView(localHeader.buffer);
+        localView.setUint32(0, 0x04034b50, true); // Local file header signature
+        localView.setUint16(4, 20, true); // Version needed to extract
+        localView.setUint16(6, 0, true); // General purpose bit flag
+        localView.setUint16(8, 0, true); // Compression method (0 = store)
+        localView.setUint16(10, dosTime, true);
+        localView.setUint16(12, dosDate, true);
+        localView.setUint32(14, checksum, true);
+        localView.setUint32(18, dataBytes.length, true); // Compressed size
+        localView.setUint32(22, dataBytes.length, true); // Uncompressed size
+        localView.setUint16(26, nameBytes.length, true);
+        localView.setUint16(28, 0, true); // Extra field length
+        localHeader.set(nameBytes, 30);
+
+        localParts.push(localHeader, dataBytes);
+
+        // Central directory file header
+        const centralHeader = new Uint8Array(46 + nameBytes.length);
+        const centralView = new DataView(centralHeader.buffer);
+        centralView.setUint32(0, 0x02014b50, true); // Central file header signature
+        centralView.setUint16(4, 20, true); // Version made by
+        centralView.setUint16(6, 20, true); // Version needed to extract
+        centralView.setUint16(8, 0, true); // General purpose bit flag
+        centralView.setUint16(10, 0, true); // Compression method
+        centralView.setUint16(12, dosTime, true);
+        centralView.setUint16(14, dosDate, true);
+        centralView.setUint32(16, checksum, true);
+        centralView.setUint32(20, dataBytes.length, true); // Compressed size
+        centralView.setUint32(24, dataBytes.length, true); // Uncompressed size
+        centralView.setUint16(28, nameBytes.length, true);
+        centralView.setUint16(30, 0, true); // Extra field length
+        centralView.setUint16(32, 0, true); // File comment length
+        centralView.setUint16(34, 0, true); // Disk number start
+        centralView.setUint16(36, 0, true); // Internal file attributes
+        centralView.setUint32(38, 0, true); // External file attributes
+        centralView.setUint32(42, offset, true); // Relative offset of local header
+        centralHeader.set(nameBytes, 46);
+
+        centralParts.push(centralHeader);
+        centralSize += centralHeader.length;
+
+        offset += localHeader.length + dataBytes.length;
+    }
+
+    // End of central directory record
+    const end = new Uint8Array(22);
+    const endView = new DataView(end.buffer);
+    endView.setUint32(0, 0x06054b50, true); // End of central dir signature
+    endView.setUint16(4, 0, true); // Number of this disk
+    endView.setUint16(6, 0, true); // Disk where central directory starts
+    endView.setUint16(8, entries.length, true); // Number of central directory records on this disk
+    endView.setUint16(10, entries.length, true); // Total number of central directory records
+    endView.setUint32(12, centralSize, true); // Size of central directory
+    endView.setUint32(16, offset, true); // Offset of start of central directory
+    endView.setUint16(20, 0, true); // Comment length
+
+    return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
+}
+
+// ============================================================================
 // Actions
 // ============================================================================
 
@@ -1211,25 +1332,32 @@ async function exportTest() {
     }
 
     try {
-        const zip = new JSZip();
+        const entries = [];
+        const encoder = new TextEncoder();
 
         // Add metadata
-        zip.file('metadata.json', JSON.stringify({
-            event: state.session?.event || '',
-            substance: state.session?.substance || '',
-            appearance: state.session?.appearance || '',
-            substanceDescription: state.session?.substanceDescription || '',
-            notes: state.session?.notes || '',
-            exportedAt: new Date().toISOString(),
-            acquisitionCount: state.acquisitions.length,
-            hasSubstancePhoto: !!state.session?.substancePhotoId,
-        }, null, 2));
+        entries.push({
+            name: 'metadata.json',
+            data: encoder.encode(JSON.stringify({
+                event: state.session?.event || '',
+                substance: state.session?.substance || '',
+                appearance: state.session?.appearance || '',
+                substanceDescription: state.session?.substanceDescription || '',
+                notes: state.session?.notes || '',
+                exportedAt: new Date().toISOString(),
+                acquisitionCount: state.acquisitions.length,
+                hasSubstancePhoto: !!state.session?.substancePhotoId,
+            }, null, 2)),
+        });
 
         // Add substance photo if present
         if (state.session?.substancePhotoId) {
             const photoFile = await db.getFile(state.session.substancePhotoId);
             if (photoFile?.data) {
-                zip.file('substance_photo.jpg', photoFile.data);
+                entries.push({
+                    name: 'substance_photo.jpg',
+                    data: new Uint8Array(await photoFile.data.arrayBuffer()),
+                });
             }
         }
 
@@ -1242,25 +1370,37 @@ async function exportTest() {
             if (acq.fileIds?.photo) {
                 const file = await db.getFile(acq.fileIds.photo);
                 if (file?.data) {
-                    zip.file(`${prefix}.jpg`, file.data);
+                    entries.push({
+                        name: `${prefix}.jpg`,
+                        data: new Uint8Array(await file.data.arrayBuffer()),
+                    });
                 }
             }
 
             // Spectrum JSON
             if (acq.spectrum) {
-                zip.file(`${prefix}_spectrum.json`, JSON.stringify(acq.spectrum, null, 2));
+                entries.push({
+                    name: `${prefix}_spectrum.json`,
+                    data: encoder.encode(JSON.stringify(acq.spectrum, null, 2)),
+                });
             }
 
             // CSV
             if (acq.csv) {
-                zip.file(`${prefix}.csv`, acq.csv);
+                entries.push({
+                    name: `${prefix}.csv`,
+                    data: encoder.encode(acq.csv),
+                });
             }
 
             // Summary plot
             if (acq.fileIds?.summaryPlot) {
                 const file = await db.getFile(acq.fileIds.summaryPlot);
                 if (file?.data) {
-                    zip.file(`${prefix}_summary.png`, file.data);
+                    entries.push({
+                        name: `${prefix}_summary.png`,
+                        data: new Uint8Array(await file.data.arrayBuffer()),
+                    });
                 }
             }
 
@@ -1268,13 +1408,16 @@ async function exportTest() {
             if (acq.fileIds?.identificationPlot) {
                 const file = await db.getFile(acq.fileIds.identificationPlot);
                 if (file?.data) {
-                    zip.file(`${prefix}_identification.png`, file.data);
+                    entries.push({
+                        name: `${prefix}_identification.png`,
+                        data: new Uint8Array(await file.data.arrayBuffer()),
+                    });
                 }
             }
         }
 
         // Generate and download
-        const blob = await zip.generateAsync({ type: 'blob' });
+        const blob = buildZipBlob(entries);
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
