@@ -52,6 +52,8 @@ const state = {
     currentAcquisition: null,
     darkMode: true,
     galleryExpanded: false,
+    appReady: false,
+    initInProgress: false,
 
     // Sync state
     syncStatus: {
@@ -74,6 +76,8 @@ const state = {
     // Pi connectivity state
     piConnected: null,
     piCheckInterval: null,
+    piCheckInFlight: false,
+    piCheckIntervalMs: 2000,
 };
 
 // ============================================================================
@@ -169,6 +173,13 @@ const elements = {
     filterBayModal: document.getElementById('filterBayModal'),
     filterBayModalOk: document.getElementById('filterBayModalOk'),
 
+    // Startup Modal
+    startupModal: document.getElementById('startupModal'),
+    startupModalTitle: document.getElementById('startupModalTitle'),
+    startupModalMessage: document.getElementById('startupModalMessage'),
+    startupReloadBtn: document.getElementById('startupReloadBtn'),
+    startupResetBtn: document.getElementById('startupResetBtn'),
+
     // Sync
     syncIndicator: document.getElementById('syncIndicator'),
     syncBadge: document.getElementById('syncBadge'),
@@ -249,30 +260,75 @@ const api = {
 // Pi Connectivity
 // ============================================================================
 
+let piConnectivityListenersBound = false;
+
+function setPiConnected(isConnected) {
+    if (state.piConnected === isConnected) return;
+    state.piConnected = isConnected;
+    updatePiConnectionUI();
+}
+
 async function checkPiConnectivity() {
     try {
         await api.getSettings();
-        if (!state.piConnected) {
-            state.piConnected = true;
-            updatePiConnectionUI();
-            // Slow down polling when connected
-            restartPiCheckInterval(10000);
-        }
+        setPiConnected(true);
+        state.piCheckIntervalMs = 10000;
     } catch (error) {
-        if (state.piConnected !== false) {
-            state.piConnected = false;
-            updatePiConnectionUI();
-            // Speed up polling when disconnected
-            restartPiCheckInterval(2000);
-        }
+        setPiConnected(false);
+        state.piCheckIntervalMs = 2000;
     }
 }
 
-function restartPiCheckInterval(intervalMs) {
+function schedulePiConnectivityCheck(delayMs = state.piCheckIntervalMs) {
     if (state.piCheckInterval) {
-        clearInterval(state.piCheckInterval);
+        clearTimeout(state.piCheckInterval);
     }
-    state.piCheckInterval = setInterval(checkPiConnectivity, intervalMs);
+    state.piCheckInterval = setTimeout(runPiConnectivityCheck, delayMs);
+}
+
+async function runPiConnectivityCheck() {
+    if (state.piCheckInFlight) return;
+
+    // Avoid background polling (battery + iOS background throttling)
+    if (document.visibilityState === 'hidden') {
+        schedulePiConnectivityCheck(30000);
+        return;
+    }
+
+    state.piCheckInFlight = true;
+    try {
+        await checkPiConnectivity();
+    } finally {
+        state.piCheckInFlight = false;
+        schedulePiConnectivityCheck();
+    }
+}
+
+function startPiConnectivityMonitoring() {
+    if (!piConnectivityListenersBound) {
+        piConnectivityListenersBound = true;
+
+        window.addEventListener('online', () => schedulePiConnectivityCheck(0));
+        window.addEventListener('offline', () => schedulePiConnectivityCheck(0));
+        window.addEventListener('pageshow', () => schedulePiConnectivityCheck(0));
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                schedulePiConnectivityCheck(0);
+            }
+        });
+    }
+
+    // Kick off immediately
+    state.piCheckInFlight = false;
+    schedulePiConnectivityCheck(0);
+}
+
+function stopPiConnectivityMonitoring() {
+    if (state.piCheckInterval) {
+        clearTimeout(state.piCheckInterval);
+        state.piCheckInterval = null;
+    }
+    state.piCheckInFlight = false;
 }
 
 function updatePiConnectionUI() {
@@ -2091,74 +2147,269 @@ function setupEventListeners() {
 }
 
 // ============================================================================
+// Startup Modal
+// ============================================================================
+
+let startupModalDelayTimer = null;
+let startupModalVisible = false;
+let startupModalListenersBound = false;
+let startupStatusTitle = 'Starting…';
+let startupStatusMessage = 'Loading…';
+
+function setStartupStatus(message, title = startupStatusTitle) {
+    startupStatusTitle = title;
+    startupStatusMessage = message;
+
+    if (!startupModalVisible) return;
+    if (!elements.startupModalTitle || !elements.startupModalMessage) return;
+
+    elements.startupModalTitle.textContent = startupStatusTitle;
+    elements.startupModalMessage.textContent = startupStatusMessage;
+}
+
+function showStartupModal({
+    title = startupStatusTitle,
+    message = startupStatusMessage,
+    showReset = false,
+} = {}) {
+    if (startupModalDelayTimer) {
+        clearTimeout(startupModalDelayTimer);
+        startupModalDelayTimer = null;
+    }
+
+    // Fallback: if modal isn't available (e.g., mismatched cached HTML), use alert.
+    if (!elements.startupModal || !elements.startupModalTitle || !elements.startupModalMessage) {
+        const combined = [title, message].filter(Boolean).join('\n\n');
+        alert(combined || 'Startup error');
+        return;
+    }
+
+    startupModalVisible = true;
+    elements.startupModalTitle.textContent = title;
+    elements.startupModalMessage.textContent = message;
+    elements.startupModal.classList.remove('hidden');
+
+    if (elements.startupResetBtn) {
+        elements.startupResetBtn.classList.toggle('hidden', !showReset);
+    }
+}
+
+function hideStartupModal() {
+    if (startupModalDelayTimer) {
+        clearTimeout(startupModalDelayTimer);
+        startupModalDelayTimer = null;
+    }
+
+    startupModalVisible = false;
+    if (elements.startupModal) {
+        elements.startupModal.classList.add('hidden');
+    }
+}
+
+function scheduleStartupModal(delayMs = 800) {
+    if (startupModalVisible) return;
+    if (startupModalDelayTimer) return;
+    if (!elements.startupModal || !elements.startupModalTitle || !elements.startupModalMessage) return;
+
+    startupModalDelayTimer = setTimeout(() => {
+        startupModalDelayTimer = null;
+        showStartupModal();
+    }, delayMs);
+}
+
+function deleteIndexedDbDatabase(name) {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(name);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => resolve();
+    });
+}
+
+async function resetLocalData() {
+    const confirmed = confirm(
+        'Reset local data on this device?\n\nThis deletes saved tests and settings, but does not affect the spectrometer.'
+    );
+    if (!confirmed) return;
+
+    try {
+        // Best-effort clear (avoid hanging if IndexedDB is broken)
+        if (db?.clearAllData) {
+            await Promise.race([
+                db.clearAllData(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('clearAllData timeout')), 1500)),
+            ]);
+        }
+    } catch (error) {
+        console.warn('Failed to clear local data:', error);
+    }
+
+    try {
+        const dbName = (typeof DB_NAME === 'string' && DB_NAME) ? DB_NAME : 'spettromiao-mobile';
+        await deleteIndexedDbDatabase(dbName);
+    } catch (error) {
+        console.warn('Failed to delete local database:', error);
+    }
+
+    window.location.reload();
+}
+
+function setupStartupModalEventListeners() {
+    if (startupModalListenersBound) return;
+    startupModalListenersBound = true;
+
+    if (elements.startupReloadBtn) {
+        elements.startupReloadBtn.addEventListener('click', () => window.location.reload());
+    }
+
+    if (elements.startupResetBtn) {
+        elements.startupResetBtn.addEventListener('click', () => resetLocalData());
+    }
+}
+
+function registerServiceWorkerInBackground() {
+    if (!('serviceWorker' in navigator)) return;
+
+    // The Pi loader already handles caching; avoid SW registration on the Pi.
+    if (window.location.hostname === '192.168.4.1') return;
+
+    try {
+        navigator.serviceWorker.register('sw.js')
+            .then(() => console.log('Service Worker registered'))
+            .catch((error) => console.warn('Service Worker registration failed:', error));
+    } catch (error) {
+        console.warn('Service Worker registration failed:', error);
+    }
+}
+
+let globalErrorHandlersInstalled = false;
+let startupFatalErrorShown = false;
+
+function installGlobalErrorHandlers() {
+    if (globalErrorHandlersInstalled) return;
+    globalErrorHandlersInstalled = true;
+
+    window.addEventListener('error', (event) => {
+        if (state.appReady) return;
+        if (startupFatalErrorShown) return;
+        startupFatalErrorShown = true;
+
+        console.error('Global error during startup:', event.error || event.message);
+
+        const message = event?.error?.message || event?.message || 'Unknown error';
+        showStartupModal({
+            title: 'Startup error',
+            message,
+            showReset: true,
+        });
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+        if (state.appReady) return;
+        if (startupFatalErrorShown) return;
+        startupFatalErrorShown = true;
+
+        console.error('Unhandled promise rejection during startup:', event.reason);
+
+        const message = event?.reason?.message || String(event.reason) || 'Unknown error';
+        showStartupModal({
+            title: 'Startup error',
+            message,
+            showReset: true,
+        });
+    });
+}
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
 async function init() {
-    // Register service worker for PWA support
-    if ('serviceWorker' in navigator) {
-        try {
-            await navigator.serviceWorker.register('sw.js');
-            console.log('Service Worker registered');
-        } catch (error) {
-            console.warn('Service Worker registration failed:', error);
+    if (state.initInProgress || state.appReady) return;
+    state.initInProgress = true;
+
+    setupStartupModalEventListeners();
+    registerServiceWorkerInBackground();
+
+    try {
+        // Show a modal only if startup is slow (avoids flicker on fast loads).
+        setStartupStatus('Opening local storage…', 'Starting…');
+        scheduleStartupModal();
+
+        // Default to "disconnected" UI until proven connected.
+        updatePiConnectionUI();
+
+        // Initialize IndexedDB (required for core functionality)
+        await db.openDB();
+
+        // Setup event listeners early - before any network calls that might block
+        // Note: handlers access state.session but only fire on user interaction,
+        // which happens after loadSession() completes below
+        setupEventListeners();
+
+        // Start Pi connectivity monitoring (non-overlapping polling)
+        startPiConnectivityMonitoring();
+
+        setStartupStatus('Loading settings…');
+        await loadSettings();
+        setTheme(state.settings?.theme !== 'light');
+
+        setStartupStatus('Loading saved tests…');
+        await loadSession();
+
+        await loadSyncStatus();
+
+        // Sync identification library (runs in background)
+        syncLibrary();
+
+        // Start polling sync status
+        startSyncStatusPolling();
+
+        // Start background sync if enabled
+        if (state.settings?.autoSync && state.settings?.syncServerUrl && state.settings?.syncToken) {
+            sync.startBackgroundSync();
         }
-    }
 
-    // Initialize IndexedDB
-    await db.openDB();
+        // Populate Step 1 form
+        updateStep1Form();
 
-    // Setup event listeners early - before any network calls that might block
-    // Note: handlers access state.session but only fire on user interaction,
-    // which happens after loadSession() completes below
-    setupEventListeners();
+        // Determine starting step
+        const savedStep = localStorage.getItem('wizardStep');
 
-    // Check Pi connectivity immediately (starts with 2s polling until connected)
-    checkPiConnectivity();
-    state.piCheckInterval = setInterval(checkPiConnectivity, 2000);
-
-    // Load settings and apply theme
-    await loadSettings();
-    setTheme(state.settings?.theme !== 'light');
-
-    // Load session
-    await loadSession();
-
-    // Load sync status
-    await loadSyncStatus();
-
-    // Sync identification library (runs in background)
-    syncLibrary();
-
-    // Start polling sync status
-    startSyncStatusPolling();
-
-    // Start background sync if enabled
-    if (state.settings?.autoSync && state.settings?.syncServerUrl && state.settings?.syncToken) {
-        sync.startBackgroundSync();
-    }
-
-    // Populate Step 1 form
-    updateStep1Form();
-
-    // Determine starting step
-    const savedStep = localStorage.getItem('wizardStep');
-
-    if (state.acquisitions.length > 0) {
-        // If there are acquisitions, go to step 3
-        state.currentStep = 3;
-        state.stepValidation.step1 = true;
-        state.stepValidation.step2 = true;
-    } else if (savedStep && parseInt(savedStep, 10) > 1 && validateStep1()) {
-        // Resume from saved step if Step 1 is still valid
-        state.currentStep = parseInt(savedStep, 10);
-        if (state.currentStep === 3) {
+        if (state.acquisitions.length > 0) {
+            // If there are acquisitions, go to step 3
+            state.currentStep = 3;
+            state.stepValidation.step1 = true;
             state.stepValidation.step2 = true;
+        } else if (savedStep && parseInt(savedStep, 10) > 1 && validateStep1()) {
+            // Resume from saved step if Step 1 is still valid
+            state.currentStep = parseInt(savedStep, 10);
+            if (state.currentStep === 3) {
+                state.stepValidation.step2 = true;
+            }
         }
-    }
 
-    updateStepIndicator();
-    showCurrentStep();
+        updateStepIndicator();
+        showCurrentStep();
+
+        state.appReady = true;
+        hideStartupModal();
+    } catch (error) {
+        console.error('App initialization failed:', error);
+        showStartupModal({
+            title: 'Startup failed',
+            message: error?.message || String(error),
+            showReset: true,
+        });
+    } finally {
+        state.initInProgress = false;
+    }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+installGlobalErrorHandlers();
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}

@@ -329,6 +329,19 @@
         </div>
     </div>
 
+    <!-- Startup Modal (shown if init is slow or fails) -->
+    <div id="startupModal" class="modal hidden">
+        <div class="startup-modal-content">
+            <div class="startup-spinner" aria-hidden="true"></div>
+            <h2 class="startup-title" id="startupModalTitle">Starting…</h2>
+            <p class="startup-message" id="startupModalMessage">Loading…</p>
+            <div class="startup-actions">
+                <button id="startupReloadBtn" class="btn btn-primary btn-small">Reload</button>
+                <button id="startupResetBtn" class="btn btn-small btn-danger hidden">Reset local data</button>
+            </div>
+        </div>
+    </div>
+
     <!-- App modules (order matters: db -> identifier -> sync -> app) -->
     <script src="js/db.js"></script>
     <script src="js/identifier.js"></script>

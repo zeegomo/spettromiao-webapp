@@ -738,6 +738,15 @@ body {
     border-color: var(--text-muted);
 }
 
+.btn-danger {
+    border-color: var(--accent-danger);
+    color: var(--accent-danger);
+}
+
+.btn-danger:active:not(:disabled) {
+    background: var(--bg-secondary);
+}
+
 .btn-small {
     padding: var(--spacing-xs) var(--spacing-sm);
     min-height: 36px;
@@ -1111,6 +1120,58 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* ============================================================================
+   Startup Modal
+   ============================================================================ */
+
+.startup-modal-content {
+    width: min(420px, 100%);
+    padding: var(--spacing-lg);
+    border: 2px solid var(--border);
+    border-radius: 6px 10px 8px 12px;
+    background: var(--bg);
+    box-shadow: 4px 4px 0 var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    text-align: center;
+}
+
+.startup-spinner {
+    width: 44px;
+    height: 44px;
+    border: 3px solid var(--border);
+    border-top-color: var(--text);
+    border-radius: 50%;
+    animation: startup-spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes startup-spin {
+    to { transform: rotate(360deg); }
+}
+
+.startup-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.startup-message {
+    color: var(--text-muted);
+}
+
+.startup-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.startup-actions .btn {
+    flex: 1;
+    min-width: 140px;
 }
 
 /* ============================================================================

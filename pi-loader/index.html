@@ -112,13 +112,19 @@
             });
         }
 
-        async function setCachedFile(db, path, content) {
+        async function setCachedFiles(db, fileMap) {
+            const timestamp = Date.now();
             return new Promise((resolve, reject) => {
                 const tx = db.transaction(CACHE_STORE_NAME, 'readwrite');
                 const store = tx.objectStore(CACHE_STORE_NAME);
-                const request = store.put({ path, content, timestamp: Date.now() });
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => resolve();
+
+                for (const [path, content] of Object.entries(fileMap)) {
+                    store.put({ path, content, timestamp });
+                }
+
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+                tx.onabort = () => reject(tx.error);
             });
         }
 
@@ -174,18 +180,20 @@
                     // Fetch all files from GitHub
                     statusEl.textContent = 'Downloading latest version...';
 
-                    const fetchPromises = APP_FILES.map(async (path) => {
-                        const content = await fetchWithTimeout(`${GITHUB_BASE}/${path}?t=${Date.now()}`);
-                        files[path] = content;
-                        await setCachedFile(db, path, content);
-                    });
+                    const downloadedFiles = {};
 
-                    await Promise.all(fetchPromises);
+                    // Fetch everything first, then write to IndexedDB in one transaction
+                    // to avoid leaving the cache partially updated.
+                    await Promise.all(APP_FILES.map(async (path) => {
+                        downloadedFiles[path] = await fetchWithTimeout(`${GITHUB_BASE}/${path}?t=${Date.now()}`);
+                    }));
 
-                    // Save version
                     if (remoteVersion) {
-                        await setCachedFile(db, CACHE_VERSION_KEY, remoteVersion);
+                        downloadedFiles[CACHE_VERSION_KEY] = remoteVersion;
                     }
+
+                    await setCachedFiles(db, downloadedFiles);
+                    files = downloadedFiles;
 
                     statusEl.textContent = 'Starting app...';
                 }
