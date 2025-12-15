@@ -997,26 +997,17 @@ async function capture() {
     elements.progressFill.style.width = '0%';
     elements.progressText.textContent = 'Starting...';
 
-    const controller = new AbortController();
-    let captureTimeout = null;
-    let exposureTimer = null;
-    let completed = false;
     const shutterTime = state.settings?.cameraSettings?.shutter || 5.0;
-
-    const cleanup = () => {
-        if (captureTimeout) clearTimeout(captureTimeout);
-        if (exposureTimer) clearInterval(exposureTimer);
-        if (!completed) controller.abort();
-    };
+    const timeoutMs = (shutterTime + 30) * 1000;  // exposure + 30s leeway
 
     // Start exposure progress animation
     const exposureStartTime = Date.now();
     const exposureDurationMs = shutterTime * 1000;
     const startProgress = 10;
-    const endProgress = 35;
+    const endProgress = 90;
 
     elements.progressFill.style.width = `${startProgress}%`;
-    exposureTimer = setInterval(() => {
+    const exposureTimer = setInterval(() => {
         const elapsed = Date.now() - exposureStartTime;
         const fraction = Math.min(elapsed / exposureDurationMs, 1);
         const currentProgress = startProgress + (endProgress - startProgress) * fraction;
@@ -1026,59 +1017,32 @@ async function capture() {
         elements.progressText.textContent = `Exposing... ${remaining.toFixed(1)}s`;
     }, 100);
 
-    // Timeout after 30 seconds if no result
-    captureTimeout = setTimeout(() => {
-        cleanup();
-        captureError('Capture timed out - camera may be stuck');
-    }, 30000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        // Use fetchSSE for Local Network Access compatibility
-        await fetchSSE(`${PI_API_URL}/api/capture`, {
-            onProgress: (data) => {
-                // Clear exposure timer when backend takes over
-                if (exposureTimer) {
-                    clearInterval(exposureTimer);
-                    exposureTimer = null;
-                }
-                elements.progressFill.style.width = `${data.progress}%`;
-                elements.progressText.textContent = data.message;
-            },
-            onResult: async (result) => {
-                try {
-                    completed = true;
-                    cleanup();
-                    await captureComplete(result);
-                } catch (error) {
-                    console.error('Error in result handler:', error);
-                    captureError('Failed to process capture result: ' + error.message);
-                }
-            },
-            onError: (data) => {
-                cleanup();
-                const errorMsg = data.message || 'Capture failed';
-                captureError(errorMsg);
-            },
-            onMessage: (data) => {
-                // Fallback handler for SSE messages without explicit event type
-                console.warn('Received unnamed SSE message:', data);
-                if (data.success !== undefined) {
-                    completed = true;
-                    cleanup();
-                    captureComplete(data).catch(err => {
-                        console.error('Error processing unnamed result:', err);
-                        captureError('Failed to process capture result');
-                    });
-                }
-            },
-        }, controller);
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            // Intentional abort (timeout or cleanup), already handled
-            return;
+        const response = await fetch(`${PI_API_URL}/api/capture`, {
+            method: 'POST',
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        clearInterval(exposureTimer);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error: ${response.status}`);
         }
-        cleanup();
-        captureError(error.message || 'Connection lost');
+
+        const result = await response.json();
+        await captureComplete(result);
+    } catch (error) {
+        clearTimeout(timeoutId);
+        clearInterval(exposureTimer);
+
+        if (error.name === 'AbortError') {
+            captureError('Capture timed out - camera may be stuck');
+        } else {
+            captureError(error.message);
+        }
     }
 }
 
