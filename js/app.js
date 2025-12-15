@@ -91,6 +91,7 @@ const elements = {
     // Header
     settingsBtn: document.getElementById('settingsBtn'),
     piWarningBanner: document.getElementById('piWarningBanner'),
+    libraryWarningBanner: document.getElementById('libraryWarningBanner'),
 
     // Wizard Steps
     stepItems: document.querySelectorAll('.step'),
@@ -244,8 +245,8 @@ const api = {
         }
     },
 
-    async get(endpoint) {
-        const response = await this.fetchWithTimeout(`${PI_API_URL}/api${endpoint}`);
+    async get(endpoint, timeout = 5000) {
+        const response = await this.fetchWithTimeout(`${PI_API_URL}/api${endpoint}`, {}, timeout);
         return response.json();
     },
 
@@ -264,7 +265,7 @@ const api = {
     // Use 20s timeout for preview start (camera initialization takes time)
     async startPreview() { return this.post('/preview/start', {}, 20000); },
     async stopPreview() { return this.post('/preview/stop'); },
-    async getPreviewStatus() { return this.get('/preview/status'); },
+    async getPreviewStatus() { return this.get('/preview/status', 15000); },
 };
 
 // ============================================================================
@@ -872,10 +873,10 @@ function resetPreviewUI() {
 }
 
 function getExposureInfo(exp_us) {
-    if (exp_us < 300) return { text: 'Perfect', class: 'exp-perfect' };
-    if (exp_us < 3000) return { text: 'Good', class: 'exp-good' };
-    if (exp_us < 6000) return { text: 'Mediocre', class: 'exp-mediocre' };
-    if (exp_us < 10000) return { text: 'Scarce', class: 'exp-scarce' };
+    if (exp_us < 3000) return { text: 'Perfect', class: 'exp-perfect' };
+    if (exp_us < 6000) return { text: 'Good', class: 'exp-good' };
+    if (exp_us < 10000) return { text: 'OK', class: 'exp-ok' };
+    if (exp_us < 20000) return { text: 'Meh', class: 'exp-meh' };
     return { text: 'Bad', class: 'exp-bad' };
 }
 
@@ -1181,7 +1182,21 @@ async function updateResultUI(acquisition, identification) {
 
     if (identification && identification.length > 0) {
         const top = identification[0];
-        elements.resultSubstance.textContent = top.substance;
+        const threshold = 0.15;
+
+        // Count substances within threshold of top score (max 3 total)
+        const closeMatchCount = identification
+            .slice(1, 3)
+            .filter(m => (top.score - m.score) <= threshold)
+            .length;
+
+        // Display top match with count of similar matches
+        if (closeMatchCount > 0) {
+            elements.resultSubstance.textContent = `${top.substance} (+${closeMatchCount} similar)`;
+        } else {
+            elements.resultSubstance.textContent = top.substance;
+        }
+
         const confidenceText = getConfidenceText(top.score);
         const confidenceClass = getConfidenceClass(top.score);
         elements.resultScore.textContent = `${top.score.toFixed(3)} | ${confidenceText}`;
@@ -2058,6 +2073,12 @@ async function syncLibrary() {
         state.libraryStatus.ready = false;
     } finally {
         state.libraryStatus.syncing = false;
+        // Show/hide library warning banner
+        if (!state.libraryStatus.ready && state.libraryStatus.substanceCount === 0) {
+            elements.libraryWarningBanner?.classList.remove('hidden');
+        } else {
+            elements.libraryWarningBanner?.classList.add('hidden');
+        }
     }
 }
 
