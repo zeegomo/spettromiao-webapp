@@ -4,11 +4,15 @@ Mobile webapp for the spettromiao DIY Raman spectrometer. This is the frontend t
 
 ## Architecture
 
+The app supports two deployment methods:
+
+### Method 1: GitHub Pages + Local Network Access (Recommended)
+
 The app is served directly from GitHub Pages and uses **Local Network Access (LNA)** to communicate with the Pi:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        HOW IT WORKS                             │
+│                    GitHub Pages + LNA                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │   1. User connects phone to Pi's WiFi (spettromiao)             │
@@ -22,21 +26,47 @@ The app is served directly from GitHub Pages and uses **Local Network Access (LN
 │   4. Browser prompts to allow private network access            │
 │      └── User grants permission once                            │
 │                                                                 │
-│   5. App makes API calls to Pi on local network                 │
-│                                                                 │
-│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Benefits:**
 - Updates automatically from GitHub (no Pi deployment needed)
-- Works in modern browsers with LNA support (Chrome, Edge, Safari)
-- Secure HTTPS connection to both GitHub and Pi
 - Simple setup - just enable GitHub Pages
+- Secure HTTPS connection
+
+**Requirements:** Chrome/Edge/Safari (iOS 17+)
+
+### Method 2: Pi-Loader (Fallback)
+
+For browsers without LNA support or fully offline scenarios:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Pi-Loader Method                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   1. User connects phone to Pi's WiFi (spettromiao)             │
+│                                                                 │
+│   2. Opens https://192.168.4.1 in browser                       │
+│      └── Pi serves pi-loader/index.html (small loader)          │
+│                                                                 │
+│   3. Loader fetches latest app from GitHub Pages                │
+│      └── Caches in IndexedDB for offline use                    │
+│                                                                 │
+│   4. App renders inline, API calls go to Pi (same origin)       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- Works in any browser (no LNA needed)
+- Fully offline after first load
+- No permission prompts
+- Same-origin API calls
 
 ## Setup
 
-### 1. Deploy to GitHub Pages
+### Step 1: Deploy to GitHub Pages
 
 ```bash
 cd kat-webapp
@@ -54,28 +84,59 @@ Then enable GitHub Pages:
 
 Your webapp will be at: `https://yourusername.github.io/kat-webapp`
 
-### 2. Configure the Pi
+### Step 2: Configure the Pi
 
 Ensure your Raspberry Pi:
 - Creates a WiFi network named `spettromiao`
 - Runs an HTTPS API server on `https://192.168.4.1`
 - Has a valid SSL certificate (self-signed is OK, but users must accept it once)
 
-The webapp automatically detects if it's served from GitHub Pages and uses Local Network Access to communicate with the Pi.
+### Step 3: (Optional) Set up Pi-Loader for Fallback
 
-### 3. Using the App
+If you want to support browsers without LNA or provide a fallback:
+
+1. Edit `pi-loader/index.html` and update line 67:
+   ```javascript
+   const GITHUB_BASE = 'https://yourusername.github.io/kat-webapp';
+   ```
+
+2. Configure your Pi to serve `pi-loader/index.html` at the root:
+
+   **Option A: Python/Flask**
+   ```python
+   from flask import send_file
+
+   @app.route('/')
+   def index():
+       return send_file('pi-loader/index.html')
+   ```
+
+   **Option B: Nginx**
+   ```nginx
+   location / {
+       root /path/to/kat-webapp/pi-loader;
+       index index.html;
+   }
+   ```
+
+## Usage
+
+### Method 1: GitHub Pages + LNA (Recommended)
 
 1. Connect your phone to the Pi's WiFi network (`spettromiao`)
 2. Open your GitHub Pages URL: `https://yourusername.github.io/kat-webapp`
-3. First time: Browser will prompt to allow access to devices on local network
+3. Browser will prompt to allow access to devices on local network
 4. Grant permission - this allows the app to communicate with the Pi
 5. Accept the Pi's SSL certificate if prompted
 6. Start using the app!
 
-**Note:** Local Network Access is supported in:
-- Chrome/Edge (Android & Desktop)
-- Safari (iOS 17+)
-- Other Chromium-based browsers
+### Method 2: Pi-Loader (Fallback)
+
+1. Connect your phone to the Pi's WiFi network (`spettromiao`)
+2. Open `https://192.168.4.1` in your browser
+3. First time: Loader downloads app from GitHub (needs internet via Pi or mobile data)
+4. Subsequent uses: Works fully offline from cache
+5. Start using the app!
 
 ## Updating the Webapp
 
@@ -90,7 +151,9 @@ git commit -m "Update webapp"
 git push
 ```
 
-GitHub Pages will automatically deploy the updates. Users will get the new version on their next visit (or after a refresh).
+Updates are deployed automatically:
+- **GitHub Pages + LNA**: Users get the new version on their next visit (or after refresh)
+- **Pi-Loader**: Loader detects the new version and downloads updates when internet is available
 
 ## File Structure
 
@@ -109,6 +172,8 @@ kat-webapp/
 │   └── sync.js         # CouchDB sync
 ├── data/
 │   └── library.json    # Reference spectra library
+├── pi-loader/
+│   └── index.html      # Fallback loader for Pi (fetches from GitHub)
 └── icons/              # PWA icons
 ```
 
