@@ -18,7 +18,7 @@ The app is served directly from GitHub Pages and uses **Local Network Access (LN
 │   1. User connects phone to Pi's WiFi (spettromiao)             │
 │                                                                 │
 │   2. Opens your GitHub Pages URL in browser                     │
-│      └── https://yourusername.github.io/kat-webapp              │
+│      └── https://yourusername.github.io/spettromiao-webapp              │
 │                                                                 │
 │   3. App served from GitHub (HTTPS) communicates with Pi        │
 │      └── Uses Local Network Access to reach https://192.168.4.1 │
@@ -69,11 +69,11 @@ For browsers without LNA support or fully offline scenarios:
 ### Step 1: Deploy to GitHub Pages
 
 ```bash
-cd kat-webapp
+cd spettromiao-webapp
 git init
 git add .
 git commit -m "Initial commit"
-gh repo create kat-webapp --public --source=. --push
+gh repo create spettromiao-webapp --public --source=. --push
 ```
 
 Then enable GitHub Pages:
@@ -82,7 +82,7 @@ Then enable GitHub Pages:
 3. Branch: `main` / `root`
 4. Save
 
-Your webapp will be at: `https://yourusername.github.io/kat-webapp`
+Your webapp will be at: `https://yourusername.github.io/spettromiao-webapp`
 
 ### Step 2: Configure the Pi
 
@@ -97,7 +97,7 @@ If you want to support browsers without LNA or provide a fallback:
 
 1. Edit `pi-loader/index.html` and update line 67:
    ```javascript
-   const GITHUB_BASE = 'https://yourusername.github.io/kat-webapp';
+   const GITHUB_BASE = 'https://yourusername.github.io/spettromiao-webapp';
    ```
 
 2. Configure your Pi to serve `pi-loader/index.html` at the root:
@@ -114,7 +114,7 @@ If you want to support browsers without LNA or provide a fallback:
    **Option B: Nginx**
    ```nginx
    location / {
-       root /path/to/kat-webapp/pi-loader;
+       root /path/to/spettromiao-webapp/pi-loader;
        index index.html;
    }
    ```
@@ -124,7 +124,7 @@ If you want to support browsers without LNA or provide a fallback:
 ### Method 1: GitHub Pages + LNA (Recommended)
 
 1. Connect your phone to the Pi's WiFi network (`spettromiao`)
-2. Open your GitHub Pages URL: `https://yourusername.github.io/kat-webapp`
+2. Open your GitHub Pages URL: `https://yourusername.github.io/spettromiao-webapp`
 3. Browser will prompt to allow access to devices on local network
 4. Grant permission - this allows the app to communicate with the Pi
 5. Accept the Pi's SSL certificate if prompted
@@ -158,7 +158,7 @@ Updates are deployed automatically:
 ## File Structure
 
 ```
-kat-webapp/
+spettromiao-webapp/
 ├── index.html          # Main app page
 ├── manifest.json       # PWA manifest
 ├── sw.js               # Service worker

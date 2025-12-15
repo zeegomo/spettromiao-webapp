@@ -1811,7 +1811,7 @@ function stopSyncStatusPolling() {
 // ============================================================================
 
 const VERSION_CONFIG = {
-    githubBase: 'https://zeegomo.github.io/kat-webapp',
+    githubBase: 'https://zeegomo.github.io/spettromiao-webapp',
     loaderCacheDb: 'spettromiao-loader-cache',
     loaderCacheStore: 'app-files',
     cacheVersionKey: 'cache-version',
