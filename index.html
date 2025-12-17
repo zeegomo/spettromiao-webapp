@@ -25,6 +25,7 @@
                 <span class="sync-icon">↻</span>
                 <span class="sync-badge hidden" id="syncBadge">0</span>
             </button>
+            <button class="history-btn" id="historyBtn" aria-label="History" title="Browse history">&#9776;</button>
             <button class="settings-btn" id="settingsBtn" aria-label="Settings">⚙</button>
         </div>
     </header>
@@ -356,6 +357,73 @@
             <div class="startup-actions">
                 <button id="startupReloadBtn" class="btn btn-primary btn-small">Reload</button>
                 <button id="startupResetBtn" class="btn btn-small btn-danger hidden">Reset local data</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyModal" class="modal hidden">
+        <div class="modal-content history-modal-content">
+            <button class="modal-close" id="closeHistoryModal">×</button>
+
+            <!-- History List View -->
+            <div id="historyListView">
+                <h3>Test History</h3>
+                <div id="historyList" class="history-list">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Session Detail View (hidden initially) -->
+            <div id="historyDetailView" class="hidden">
+                <button class="btn btn-small history-back-btn" id="historyBackBtn">← Back</button>
+                <h3 id="historyDetailTitle">Session Details</h3>
+
+                <div class="history-session-info">
+                    <div class="history-info-row">
+                        <span class="history-label">Date:</span>
+                        <span id="historyDetailDate">-</span>
+                    </div>
+                    <div class="history-info-row">
+                        <span class="history-label">Event:</span>
+                        <span id="historyDetailEvent">-</span>
+                    </div>
+                    <div class="history-info-row">
+                        <span class="history-label">Substance:</span>
+                        <span id="historyDetailSubstance">-</span>
+                    </div>
+                    <div class="history-info-row">
+                        <span class="history-label">Appearance:</span>
+                        <span id="historyDetailAppearance">-</span>
+                    </div>
+                    <div class="history-info-row hidden" id="historyNotesRow">
+                        <span class="history-label">Notes:</span>
+                        <span id="historyDetailNotes">-</span>
+                    </div>
+                </div>
+
+                <h4>Acquisitions (<span id="historyAcquisitionCount">0</span>)</h4>
+                <div id="historyGalleryContainer" class="gallery-container">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Selected acquisition result (read-only) -->
+                <div id="historyResultSection" class="results-section hidden">
+                    <h3>Result</h3>
+                    <div class="result-card">
+                        <img id="historyResultThumb" src="" alt="Result" class="result-thumb">
+                        <div class="result-info">
+                            <span id="historyResultSubstance" class="result-substance">-</span>
+                            <span id="historyResultScore" class="result-score">score: -</span>
+                            <span id="historyResultTime" class="result-time">-</span>
+                        </div>
+                    </div>
+                    <div class="result-actions">
+                        <button id="historyViewPlotBtn" class="btn btn-small">View Summary</button>
+                        <button id="historyViewMatchesBtn" class="btn btn-small hidden">View Matches</button>
+                        <button id="historyDownloadCsvBtn" class="btn btn-small">Download CSV</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

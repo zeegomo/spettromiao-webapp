@@ -81,6 +81,11 @@ const state = {
     piCheckInterval: null,
     piCheckInFlight: false,
     piCheckIntervalMs: 2000,
+
+    // History view state
+    historyViewingSession: null,
+    historyAcquisitions: [],
+    historyCurrentAcquisition: null,
 };
 
 // ============================================================================
@@ -206,6 +211,32 @@ const elements = {
     versionStatus: document.getElementById('versionStatus'),
     checkUpdateBtn: document.getElementById('checkUpdateBtn'),
     updateNowBtn: document.getElementById('updateNowBtn'),
+
+    // History
+    historyBtn: document.getElementById('historyBtn'),
+    historyModal: document.getElementById('historyModal'),
+    closeHistoryModal: document.getElementById('closeHistoryModal'),
+    historyListView: document.getElementById('historyListView'),
+    historyList: document.getElementById('historyList'),
+    historyDetailView: document.getElementById('historyDetailView'),
+    historyBackBtn: document.getElementById('historyBackBtn'),
+    historyDetailTitle: document.getElementById('historyDetailTitle'),
+    historyDetailDate: document.getElementById('historyDetailDate'),
+    historyDetailEvent: document.getElementById('historyDetailEvent'),
+    historyDetailSubstance: document.getElementById('historyDetailSubstance'),
+    historyDetailAppearance: document.getElementById('historyDetailAppearance'),
+    historyDetailNotes: document.getElementById('historyDetailNotes'),
+    historyNotesRow: document.getElementById('historyNotesRow'),
+    historyAcquisitionCount: document.getElementById('historyAcquisitionCount'),
+    historyGalleryContainer: document.getElementById('historyGalleryContainer'),
+    historyResultSection: document.getElementById('historyResultSection'),
+    historyResultThumb: document.getElementById('historyResultThumb'),
+    historyResultSubstance: document.getElementById('historyResultSubstance'),
+    historyResultScore: document.getElementById('historyResultScore'),
+    historyResultTime: document.getElementById('historyResultTime'),
+    historyViewPlotBtn: document.getElementById('historyViewPlotBtn'),
+    historyViewMatchesBtn: document.getElementById('historyViewMatchesBtn'),
+    historyDownloadCsvBtn: document.getElementById('historyDownloadCsvBtn'),
 };
 
 // ============================================================================
@@ -1337,6 +1368,248 @@ function updateExportButton() {
 }
 
 // ============================================================================
+// History Browser
+// ============================================================================
+
+async function openHistoryModal() {
+    elements.historyModal.classList.remove('hidden');
+    showHistoryListView();
+    await loadHistoryList();
+}
+
+function closeHistoryModal() {
+    elements.historyModal.classList.add('hidden');
+    state.historyViewingSession = null;
+    state.historyAcquisitions = [];
+    state.historyCurrentAcquisition = null;
+}
+
+function showHistoryListView() {
+    elements.historyListView.classList.remove('hidden');
+    elements.historyDetailView.classList.add('hidden');
+}
+
+function showHistoryDetailView() {
+    elements.historyListView.classList.add('hidden');
+    elements.historyDetailView.classList.remove('hidden');
+}
+
+async function loadHistoryList() {
+    const sessions = await db.listSessions();
+
+    if (sessions.length === 0) {
+        elements.historyList.innerHTML = '<div class="history-list-empty">No test history yet</div>';
+        return;
+    }
+
+    const listItems = await Promise.all(sessions.map(async (session) => {
+        const acquisitions = await db.getAcquisitionsBySession(session.id);
+        const acquisitionCount = acquisitions.length;
+
+        // Get top match from first acquisition with identification
+        let topMatch = null;
+        let topScore = null;
+        for (const acq of acquisitions) {
+            if (acq.identification && acq.identification.length > 0) {
+                topMatch = acq.identification[0].substance;
+                topScore = acq.identification[0].score;
+                break;
+            }
+        }
+
+        const dateStr = formatHistoryDate(session.createdAt);
+        const isCurrent = session.isCurrent === 1;
+        const confidenceClass = topScore ? getConfidenceClass(topScore) : '';
+
+        return `
+            <div class="history-item ${isCurrent ? 'history-item-current' : ''}" data-session-id="${session.id}">
+                <div class="history-item-header">
+                    <span class="history-item-event">${escapeHtml(session.event || 'Unnamed')}</span>
+                    <span class="history-item-date">${dateStr}</span>
+                </div>
+                <div class="history-item-details">
+                    <span class="history-item-substance">${escapeHtml(session.substance || '-')}</span>
+                    <span>${acquisitionCount} acquisition${acquisitionCount !== 1 ? 's' : ''}</span>
+                    ${topMatch ? `<span class="history-item-match ${confidenceClass}">${escapeHtml(topMatch)} (${topScore.toFixed(2)})</span>` : ''}
+                    ${isCurrent ? '<span class="history-item-current-badge">(current)</span>' : ''}
+                </div>
+            </div>
+        `;
+    }));
+
+    elements.historyList.innerHTML = listItems.join('');
+
+    // Add click handlers
+    elements.historyList.querySelectorAll('.history-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const sessionId = item.dataset.sessionId;
+            viewHistorySession(sessionId);
+        });
+    });
+}
+
+async function viewHistorySession(sessionId) {
+    const session = await db.getSession(sessionId);
+    if (!session) {
+        console.error('Session not found:', sessionId);
+        return;
+    }
+
+    state.historyViewingSession = session;
+    state.historyAcquisitions = await db.getAcquisitionsBySession(sessionId);
+    state.historyCurrentAcquisition = null;
+
+    // Populate session info
+    elements.historyDetailTitle.textContent = session.event || 'Unnamed Test';
+    elements.historyDetailDate.textContent = formatHistoryDate(session.createdAt);
+    elements.historyDetailEvent.textContent = session.event || '-';
+    elements.historyDetailSubstance.textContent = session.substance || '-';
+
+    // Format appearance
+    let appearanceText = session.appearance || '-';
+    if (session.appearance === 'other' && session.customAppearance) {
+        appearanceText = session.customAppearance;
+    }
+    elements.historyDetailAppearance.textContent = appearanceText;
+
+    // Notes
+    if (session.notes) {
+        elements.historyNotesRow.classList.remove('hidden');
+        elements.historyDetailNotes.textContent = session.notes;
+    } else {
+        elements.historyNotesRow.classList.add('hidden');
+    }
+
+    // Acquisition count
+    elements.historyAcquisitionCount.textContent = state.historyAcquisitions.length;
+
+    // Build gallery
+    await updateHistoryGalleryUI();
+
+    // Hide result section initially
+    elements.historyResultSection.classList.add('hidden');
+
+    showHistoryDetailView();
+}
+
+async function updateHistoryGalleryUI() {
+    const acquisitions = state.historyAcquisitions;
+
+    if (acquisitions.length === 0) {
+        elements.historyGalleryContainer.innerHTML = '<div class="gallery-empty">No acquisitions</div>';
+        return;
+    }
+
+    const galleryItems = await Promise.all(acquisitions.map(async (acq, idx) => {
+        let thumbUrl = '';
+        if (acq.fileIds?.photo) {
+            thumbUrl = await db.getFileUrl(acq.fileIds.photo);
+            if (thumbUrl) state.blobUrls.push(thumbUrl);
+        }
+
+        return `
+            <div class="gallery-item" data-history-acq-index="${idx}">
+                <img src="${thumbUrl}" alt="Acquisition ${idx + 1}">
+                <span>${formatTime(acq.timestamp)}</span>
+            </div>
+        `;
+    }));
+
+    elements.historyGalleryContainer.innerHTML = galleryItems.join('');
+
+    // Add click handlers
+    elements.historyGalleryContainer.querySelectorAll('.gallery-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const idx = parseInt(item.dataset.historyAcqIndex, 10);
+            showHistoryAcquisition(idx);
+        });
+    });
+}
+
+async function showHistoryAcquisition(idx) {
+    const acquisition = state.historyAcquisitions[idx];
+    if (!acquisition) return;
+
+    state.historyCurrentAcquisition = acquisition;
+    elements.historyResultSection.classList.remove('hidden');
+
+    // Load photo
+    if (acquisition.fileIds?.photo) {
+        const photoUrl = await db.getFileUrl(acquisition.fileIds.photo);
+        if (photoUrl) {
+            state.blobUrls.push(photoUrl);
+            elements.historyResultThumb.src = photoUrl;
+        }
+    } else {
+        elements.historyResultThumb.src = '';
+    }
+
+    elements.historyResultTime.textContent = formatTime(acquisition.timestamp);
+
+    if (acquisition.laserWavelength) {
+        const modeText = acquisition.detectionMode === 'auto' ? 'detected' : 'manual';
+        elements.historyResultTime.textContent += ` | ${acquisition.laserWavelength.toFixed(1)}nm (${modeText})`;
+    }
+
+    const identification = acquisition.identification;
+
+    if (identification && identification.length > 0) {
+        const top = identification[0];
+        const threshold = 0.15;
+
+        const closeMatchCount = identification
+            .slice(1, 3)
+            .filter(m => (top.score - m.score) <= threshold)
+            .length;
+
+        if (closeMatchCount > 0) {
+            elements.historyResultSubstance.textContent = `${top.substance} (+${closeMatchCount} similar)`;
+        } else {
+            elements.historyResultSubstance.textContent = top.substance;
+        }
+
+        const confidenceText = getConfidenceText(top.score);
+        const confidenceClass = getConfidenceClass(top.score);
+        elements.historyResultScore.textContent = `${top.score.toFixed(3)} | ${confidenceText}`;
+        elements.historyResultScore.className = `result-score ${confidenceClass}`;
+    } else {
+        elements.historyResultSubstance.textContent = 'Unknown';
+        elements.historyResultScore.textContent = 'score: N/A';
+        elements.historyResultScore.className = 'result-score';
+    }
+
+    // Set up action buttons
+    elements.historyViewPlotBtn.onclick = () => showPlot(acquisition, 'summaryPlot');
+    elements.historyViewPlotBtn.disabled = !acquisition.fileIds?.summaryPlot;
+
+    const hasMultipleMatches = identification?.length > 1;
+    elements.historyViewMatchesBtn.onclick = () => showMatches(identification);
+    elements.historyViewMatchesBtn.disabled = !hasMultipleMatches;
+    elements.historyViewMatchesBtn.classList.toggle('hidden', !hasMultipleMatches);
+
+    elements.historyDownloadCsvBtn.onclick = () => downloadCsv(acquisition);
+    elements.historyDownloadCsvBtn.disabled = !acquisition.csv;
+}
+
+function formatHistoryDate(isoString) {
+    if (!isoString) return '-';
+    const date = new Date(isoString);
+    return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ============================================================================
 // ZIP Export (no external deps)
 // ============================================================================
 
@@ -2217,10 +2490,21 @@ function setupEventListeners() {
         }
     });
 
+    // History modal
+    elements.historyBtn.addEventListener('click', openHistoryModal);
+    elements.closeHistoryModal.addEventListener('click', closeHistoryModal);
+    elements.historyBackBtn.addEventListener('click', showHistoryListView);
+    elements.historyModal.addEventListener('click', (e) => {
+        if (e.target === elements.historyModal) {
+            closeHistoryModal();
+        }
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             closeSettings();
+            closeHistoryModal();
             elements.plotModal.classList.add('hidden');
             elements.matchesModal.classList.add('hidden');
         }
