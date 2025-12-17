@@ -172,6 +172,11 @@ const elements = {
     plotImage: document.getElementById('plotImage'),
     closePlotModal: document.getElementById('closePlotModal'),
 
+    // Matches Modal
+    matchesModal: document.getElementById('matchesModal'),
+    matchesList: document.getElementById('matchesList'),
+    closeMatchesModal: document.getElementById('closeMatchesModal'),
+
     // Filter Bay Modal
     filterBayReminder: document.getElementById('filterBayReminder'),
     filterBayModal: document.getElementById('filterBayModal'),
@@ -1212,9 +1217,10 @@ async function updateResultUI(acquisition, identification) {
     elements.viewPlotBtn.disabled = !acquisition.fileIds?.summaryPlot;
 
     if (elements.viewMatchesBtn) {
-        elements.viewMatchesBtn.onclick = () => showPlot(acquisition, 'identificationPlot');
-        elements.viewMatchesBtn.disabled = !acquisition.fileIds?.identificationPlot;
-        elements.viewMatchesBtn.classList.toggle('hidden', !acquisition.fileIds?.identificationPlot);
+        const hasMultipleMatches = identification?.length > 1;
+        elements.viewMatchesBtn.onclick = () => showMatches(identification);
+        elements.viewMatchesBtn.disabled = !hasMultipleMatches;
+        elements.viewMatchesBtn.classList.toggle('hidden', !hasMultipleMatches);
     }
 
     elements.downloadCsvBtn.onclick = () => downloadCsv(acquisition);
@@ -1231,6 +1237,25 @@ async function showPlot(acquisition, plotType) {
         elements.plotImage.src = url;
         elements.plotModal.classList.remove('hidden');
     }
+}
+
+function showMatches(identification) {
+    if (!identification || identification.length === 0) return;
+
+    const html = identification.map(match => {
+        const confidenceText = getConfidenceText(match.score);
+        const confidenceClass = getConfidenceClass(match.score);
+        return `
+            <div class="match-item">
+                <span class="match-rank">#${match.rank}</span>
+                <span class="match-substance">${match.substance}</span>
+                <span class="match-score ${confidenceClass}">${match.score.toFixed(3)} - ${confidenceText}</span>
+            </div>
+        `;
+    }).join('');
+
+    elements.matchesList.innerHTML = html;
+    elements.matchesModal.classList.remove('hidden');
 }
 
 function downloadCsv(acquisition) {
@@ -2182,11 +2207,22 @@ function setupEventListeners() {
         }
     });
 
+    // Matches modal
+    elements.closeMatchesModal.addEventListener('click', () => {
+        elements.matchesModal.classList.add('hidden');
+    });
+    elements.matchesModal.addEventListener('click', (e) => {
+        if (e.target === elements.matchesModal) {
+            elements.matchesModal.classList.add('hidden');
+        }
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             closeSettings();
             elements.plotModal.classList.add('hidden');
+            elements.matchesModal.classList.add('hidden');
         }
     });
 
