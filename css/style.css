@@ -1681,6 +1681,155 @@ body {
 }
 
 /* ============================================================================
+   Help Button
+   ============================================================================ */
+
+.help-btn {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 2px solid var(--border);
+    border-radius: 4px 6px 5px 7px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 1.25rem;
+    font-weight: 600;
+    touch-action: manipulation;
+}
+
+.help-btn:active {
+    background: var(--bg-secondary);
+}
+
+/* ============================================================================
+   Help Modal
+   ============================================================================ */
+
+.help-modal-content {
+    width: min(500px, 95vw);
+    max-height: 85vh;
+    padding: var(--spacing-lg);
+    border: 2px solid var(--border);
+    border-radius: 6px 10px 8px 12px;
+    background: var(--bg);
+    box-shadow: 4px 4px 0 var(--border);
+    overflow-y: auto;
+}
+
+.help-modal-content h3 {
+    margin: 0 0 var(--spacing-md) 0;
+    font-size: 1.1rem;
+}
+
+.help-modal-content h4 {
+    font-size: 0.95rem;
+    margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 1px dashed var(--border);
+    color: var(--text);
+}
+
+.help-modal-content h4:first-child {
+    margin-top: 0;
+}
+
+.help-modal-content p {
+    color: var(--text-muted);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    margin-bottom: var(--spacing-sm);
+}
+
+.help-modal-content ul {
+    color: var(--text-muted);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    margin: var(--spacing-sm) 0;
+    padding-left: var(--spacing-lg);
+}
+
+.help-modal-content li {
+    margin-bottom: var(--spacing-xs);
+}
+
+/* Help Tabs */
+.help-tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-lg);
+    border-bottom: 2px solid var(--border);
+    padding-bottom: var(--spacing-sm);
+}
+
+.help-tab {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 3px 5px 0 0;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.help-tab:hover {
+    color: var(--text);
+}
+
+.help-tab.active {
+    color: var(--text);
+    border-color: var(--border);
+    border-bottom-color: var(--bg);
+    background: var(--bg);
+    margin-bottom: -2px;
+}
+
+.help-section {
+    display: none;
+}
+
+.help-section.active {
+    display: block;
+}
+
+/* Troubleshooting subsections */
+.help-section > div {
+    margin-bottom: var(--spacing-xl);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border);
+}
+
+.help-section > div:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+/* ============================================================================
+   Pi Warning Help Link
+   ============================================================================ */
+
+.pi-warning-help-link {
+    background: none;
+    border: none;
+    color: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: inherit;
+    font-family: inherit;
+    padding: 0;
+    margin-left: var(--spacing-sm);
+}
+
+.pi-warning-help-link:hover {
+    opacity: 0.8;
+}
+
+/* ============================================================================
    Responsive
    ============================================================================ */
 

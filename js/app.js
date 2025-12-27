@@ -212,6 +212,15 @@ const elements = {
     checkUpdateBtn: document.getElementById('checkUpdateBtn'),
     updateNowBtn: document.getElementById('updateNowBtn'),
 
+    // Help
+    helpBtn: document.getElementById('helpBtn'),
+    helpModal: document.getElementById('helpModal'),
+    closeHelpModal: document.getElementById('closeHelpModal'),
+    helpTabs: document.querySelectorAll('.help-tab'),
+    helpSections: document.querySelectorAll('.help-section'),
+    helpTabContent: document.getElementById('helpTabContent'),
+    piWarningHelpLink: document.getElementById('piWarningHelpLink'),
+
     // History
     historyBtn: document.getElementById('historyBtn'),
     historyModal: document.getElementById('historyModal'),
@@ -238,6 +247,51 @@ const elements = {
     historyViewMatchesBtn: document.getElementById('historyViewMatchesBtn'),
     historyDownloadCsvBtn: document.getElementById('historyDownloadCsvBtn'),
 };
+
+// ============================================================================
+// Enhanced Error Alerts with Troubleshooting Tips
+// ============================================================================
+
+const TROUBLESHOOTING_TIPS = {
+    photoSave: {
+        tip: 'Check if browser storage is full. Try removing old tests from History.',
+        section: 'save'
+    },
+    captureTimeout: {
+        tip: 'Try restarting the spectrometer. If problem persists, reduce shutter time.',
+        section: 'capture'
+    },
+    captureSaveFailed: {
+        tip: 'Storage may be full. Export current data and clear old tests.',
+        section: 'save'
+    },
+    captureFailed: {
+        tip: 'Ensure spectrometer is connected and filter bay is closed.',
+        section: 'capture'
+    },
+    captureError: {
+        tip: 'Check spectrometer connection. If camera is stuck, restart the device.',
+        section: 'capture'
+    },
+    exportFailed: {
+        tip: 'Ensure you have enough storage space. Try exporting fewer acquisitions.',
+        section: 'save'
+    },
+    sessionFailed: {
+        tip: 'Browser storage may be corrupted. Try clearing old tests or reset in Settings.',
+        section: 'save'
+    }
+};
+
+function showEnhancedAlert(baseMessage, tipKey) {
+    const troubleInfo = TROUBLESHOOTING_TIPS[tipKey];
+    if (troubleInfo) {
+        const fullMessage = `${baseMessage}\n\nTip: ${troubleInfo.tip}\n\n[See Help > Troubleshooting for details]`;
+        alert(fullMessage);
+    } else {
+        alert(baseMessage);
+    }
+}
 
 // ============================================================================
 // API Client (for Pi communication only)
@@ -681,7 +735,7 @@ async function handleSubstancePhotoSelect(event) {
         showSubstancePhotoPreview(blob);
     } catch (error) {
         console.error('Failed to save substance photo:', error);
-        alert('Failed to save photo: ' + error.message);
+        showEnhancedAlert('Failed to save photo: ' + error.message, 'photoSave');
     }
 
     // Reset input so same file can be selected again
@@ -1077,7 +1131,7 @@ async function capture() {
         clearInterval(exposureTimer);
 
         if (error.name === 'AbortError') {
-            captureError('Capture timed out - camera may be stuck');
+            captureError('Capture timed out - camera may be stuck', 'captureTimeout');
         } else {
             captureError(error.message);
         }
@@ -1166,18 +1220,18 @@ async function captureComplete(result) {
 
         } catch (error) {
             console.error('Failed to store acquisition:', error);
-            alert('Capture succeeded but failed to save: ' + error.message);
+            showEnhancedAlert('Capture succeeded but failed to save: ' + error.message, 'captureSaveFailed');
         }
     } else {
-        alert('Capture failed: ' + (result.error || 'Unknown error'));
+        showEnhancedAlert('Capture failed: ' + (result.error || 'Unknown error'), 'captureFailed');
     }
 }
 
-function captureError(message) {
+function captureError(message, tipKey = 'captureError') {
     state.capturing = false;
     elements.captureBtn.disabled = false;
     elements.progressContainer.classList.add('hidden');
-    alert('Capture error: ' + message);
+    showEnhancedAlert('Capture error: ' + message, tipKey);
 }
 
 function getConfidenceText(score) {
@@ -1365,6 +1419,62 @@ async function showAcquisition(idx) {
 
 function updateExportButton() {
     elements.exportBtn.disabled = state.acquisitions.length === 0;
+}
+
+// ============================================================================
+// Help Modal
+// ============================================================================
+
+function openHelpModal(section = null) {
+    elements.helpModal.classList.remove('hidden');
+
+    if (section) {
+        // Map section to tab index
+        const sectionToTab = {
+            'overview': 0,
+            'workflow': 1,
+            'troubleshooting': 2,
+            'connection': 2,
+            'capture': 2,
+            'save': 2,
+            'sync': 2
+        };
+
+        const tabIndex = sectionToTab[section] ?? 0;
+        switchHelpTab(tabIndex);
+
+        // Scroll to specific subsection if on troubleshooting tab
+        if (tabIndex === 2 && section !== 'troubleshooting') {
+            setTimeout(() => {
+                const anchor = document.getElementById(`help-${section}`);
+                if (anchor) {
+                    anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 100);
+        }
+    }
+}
+
+function closeHelpModal() {
+    elements.helpModal.classList.add('hidden');
+}
+
+function switchHelpTab(tabIndex) {
+    // Update tab buttons
+    elements.helpTabs.forEach((tab, i) => {
+        tab.classList.toggle('active', i === tabIndex);
+    });
+
+    // Update sections
+    elements.helpSections.forEach((section, i) => {
+        section.classList.toggle('active', i === tabIndex);
+        section.classList.toggle('hidden', i !== tabIndex);
+    });
+
+    // Scroll to top of content
+    if (elements.helpTabContent) {
+        elements.helpTabContent.scrollTop = 0;
+    }
 }
 
 // ============================================================================
@@ -1835,7 +1945,7 @@ async function exportTest() {
 
     } catch (error) {
         console.error('Export failed:', error);
-        alert('Export failed: ' + error.message);
+        showEnhancedAlert('Export failed: ' + error.message, 'exportFailed');
     }
 }
 
@@ -1861,7 +1971,7 @@ async function newTest() {
 
     } catch (error) {
         console.error('Failed to create new session:', error);
-        alert('Failed to create new session');
+        showEnhancedAlert('Failed to create new session', 'sessionFailed');
     }
 }
 
@@ -2500,11 +2610,30 @@ function setupEventListeners() {
         }
     });
 
+    // Help modal
+    elements.helpBtn.addEventListener('click', () => openHelpModal());
+    elements.closeHelpModal.addEventListener('click', closeHelpModal);
+    elements.helpModal.addEventListener('click', (e) => {
+        if (e.target === elements.helpModal) {
+            closeHelpModal();
+        }
+    });
+    elements.helpTabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => switchHelpTab(index));
+    });
+    if (elements.piWarningHelpLink) {
+        elements.piWarningHelpLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            openHelpModal('connection');
+        });
+    }
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             closeSettings();
             closeHistoryModal();
+            closeHelpModal();
             elements.plotModal.classList.add('hidden');
             elements.matchesModal.classList.add('hidden');
         }
