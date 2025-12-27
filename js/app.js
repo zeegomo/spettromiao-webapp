@@ -1035,7 +1035,7 @@ async function capture() {
     elements.progressText.textContent = 'Starting...';
 
     const shutterTime = state.settings?.cameraSettings?.shutter || 5.0;
-    const timeoutMs = (shutterTime + 50) * 1000;  // exposure + 25s Pi overhead + 25s safety margin
+    const timeoutMs = (shutterTime + 60) * 1000;  // exposure + 25s Pi overhead + 35s safety margin
 
     // Start capture progress animation (Pi has ~25s fixed processing overhead)
     const exposureStartTime = Date.now();
