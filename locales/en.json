@@ -128,6 +128,14 @@
       "wavelength": {
         "detected": "{value}nm (detected)",
         "manual": "{value}nm (manual)"
+      },
+      "resolution": {
+        "value": "Resolution: {value} cm⁻¹",
+        "valueWithNm": "Resolution: {value} cm⁻¹ ({nm} nm)",
+        "unavailable": "Resolution: N/A",
+        "saturated": "laser line saturated, may be overestimated",
+        "oneSided": "estimated from half peak",
+        "details": "FWHM of the laser line: {pixels} points at {sampling} cm⁻¹/point"
       }
     },
     "gallery": {

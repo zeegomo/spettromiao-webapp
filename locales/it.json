@@ -128,6 +128,14 @@
       "wavelength": {
         "detected": "{value}nm (rilevato)",
         "manual": "{value}nm (manuale)"
+      },
+      "resolution": {
+        "value": "Risoluzione: {value} cm⁻¹",
+        "valueWithNm": "Risoluzione: {value} cm⁻¹ ({nm} nm)",
+        "unavailable": "Risoluzione: N/D",
+        "saturated": "riga laser saturata, possibile sovrastima",
+        "oneSided": "stimata da metà picco",
+        "details": "FWHM della riga laser: {pixels} punti a {sampling} cm⁻¹/punto"
       }
     },
     "gallery": {

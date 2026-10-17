@@ -146,6 +146,7 @@ const elements = {
     resultSubstance: document.getElementById('resultSubstance'),
     resultScore: document.getElementById('resultScore'),
     resultTime: document.getElementById('resultTime'),
+    resultResolution: document.getElementById('resultResolution'),
     viewPlotBtn: document.getElementById('viewPlotBtn'),
     viewMatchesBtn: document.getElementById('viewMatchesBtn'),
     downloadCsvBtn: document.getElementById('downloadCsvBtn'),
@@ -239,6 +240,7 @@ const elements = {
     historyResultSubstance: document.getElementById('historyResultSubstance'),
     historyResultScore: document.getElementById('historyResultScore'),
     historyResultTime: document.getElementById('historyResultTime'),
+    historyResultResolution: document.getElementById('historyResultResolution'),
     historyViewPlotBtn: document.getElementById('historyViewPlotBtn'),
     historyViewMatchesBtn: document.getElementById('historyViewMatchesBtn'),
     historyDownloadCsvBtn: document.getElementById('historyDownloadCsvBtn'),
@@ -315,6 +317,146 @@ function checkExposure(csv) {
         console.error('Exposure check failed:', e);
         return null;
     }
+}
+
+// ============================================================================
+// Resolution Estimate
+// ============================================================================
+
+const RESOLUTION_PEAK_SEARCH = 100;  // Look for the laser line within ±100 cm^-1 of 0
+const RESOLUTION_WINDOW = 200;       // Baseline and half-max search within ±200 cm^-1 of the peak
+
+/**
+ * Estimate the spectral resolution as the FWHM of the laser (Rayleigh) line.
+ * The laser line is much narrower than the instrument response, so its measured
+ * width approximates the spectrometer's resolution.
+ * @param {string} csv - CSV data with wavenumber,intensity columns
+ * @param {number} [laserWavelengthNm] - Laser wavelength, used to express the FWHM in nm
+ * @returns {{fwhm: number, fwhmNm: number|null, fwhmPixels: number|null, sampling: number|null, saturated: boolean, oneSided: boolean}|null}
+ */
+function computeResolution(csv, laserWavelengthNm) {
+    if (!csv) return null;
+
+    try {
+        const lines = csv.trim().split('\n');
+        // Skip header if present
+        const startIdx = lines[0].includes('wavenumber') || lines[0].includes('cm') ? 1 : 0;
+
+        const x = [];
+        const y = [];
+        for (let i = startIdx; i < lines.length; i++) {
+            const parts = lines[i].split(',');
+            if (parts.length < 2) continue;
+
+            const wavenumber = parseFloat(parts[0]);
+            const intensity = parseFloat(parts[1]);
+
+            if (isNaN(wavenumber) || isNaN(intensity)) continue;
+            x.push(wavenumber);
+            y.push(intensity);
+        }
+        if (x.length < 5) return null;
+
+        // Laser line: highest point near 0 cm^-1
+        let peakIdx = -1;
+        for (let i = 0; i < x.length; i++) {
+            if (Math.abs(x[i]) <= RESOLUTION_PEAK_SEARCH && (peakIdx < 0 || y[i] > y[peakIdx])) {
+                peakIdx = i;
+            }
+        }
+        if (peakIdx < 0) return null;
+
+        const peakX = x[peakIdx];
+        const peak = y[peakIdx];
+        const inWindow = (i) => Math.abs(x[i] - peakX) <= RESOLUTION_WINDOW;
+
+        // Local baseline: lowest point around the peak
+        let baseline = Infinity;
+        for (let i = 0; i < x.length; i++) {
+            if (inWindow(i) && y[i] < baseline) baseline = y[i];
+        }
+        const height = peak - baseline;
+        if (!(height > 0)) return null;
+        const halfMax = baseline + height / 2;
+
+        // Walk away from the peak until the signal drops below half max, then interpolate
+        const findCrossing = (dir) => {
+            for (let i = peakIdx; i + dir >= 0 && i + dir < x.length && inWindow(i + dir); i += dir) {
+                const j = i + dir;
+                if (y[j] <= halfMax) {
+                    const t = (y[i] - halfMax) / (y[i] - y[j]);
+                    return x[i] + t * (x[j] - x[i]);
+                }
+            }
+            return null;
+        };
+
+        const left = findCrossing(-1);
+        const right = findCrossing(1);
+
+        // If one side is cut off (e.g. axis starts at the laser line), assume a symmetric peak
+        let fwhm;
+        if (left !== null && right !== null) {
+            fwhm = Math.abs(right - left);
+        } else if (left !== null) {
+            fwhm = 2 * Math.abs(peakX - left);
+        } else if (right !== null) {
+            fwhm = 2 * Math.abs(right - peakX);
+        } else {
+            return null;
+        }
+        if (!(fwhm > 0)) return null;
+
+        // Axis sampling around the peak (cm^-1 per point)
+        const lo = Math.max(0, peakIdx - 1);
+        const hi = Math.min(x.length - 1, peakIdx + 1);
+        const sampling = hi > lo ? Math.abs(x[hi] - x[lo]) / (hi - lo) : null;
+
+        // A flat top of several points suggests the laser line is clipped
+        let flatCount = 1;
+        for (let i = peakIdx - 1; i >= 0 && peak - y[i] <= height * 0.001; i--) flatCount++;
+        for (let i = peakIdx + 1; i < y.length && peak - y[i] <= height * 0.001; i++) flatCount++;
+
+        return {
+            fwhm,
+            fwhmNm: laserWavelengthNm ? laserWavelengthNm * laserWavelengthNm * fwhm * 1e-7 : null,
+            fwhmPixels: sampling ? fwhm / sampling : null,
+            sampling,
+            saturated: flatCount >= 3,
+            oneSided: left === null || right === null,
+        };
+    } catch (e) {
+        console.error('Resolution computation failed:', e);
+        return null;
+    }
+}
+
+function getAcquisitionResolution(acquisition) {
+    return acquisition.resolution ?? computeResolution(acquisition.csv, acquisition.laserWavelength);
+}
+
+function renderResolution(el, resolution) {
+    if (!resolution) {
+        el.textContent = i18n.t('step3.results.resolution.unavailable');
+        el.title = '';
+        el.classList.remove('warning');
+        return;
+    }
+
+    let text = resolution.fwhmNm
+        ? i18n.t('step3.results.resolution.valueWithNm', { value: resolution.fwhm.toFixed(1), nm: resolution.fwhmNm.toFixed(2) })
+        : i18n.t('step3.results.resolution.value', { value: resolution.fwhm.toFixed(1) });
+    if (resolution.saturated) {
+        text += ` · ${i18n.t('step3.results.resolution.saturated')}`;
+    } else if (resolution.oneSided) {
+        text += ` · ${i18n.t('step3.results.resolution.oneSided')}`;
+    }
+
+    el.textContent = text;
+    el.title = resolution.fwhmPixels
+        ? i18n.t('step3.results.resolution.details', { pixels: resolution.fwhmPixels.toFixed(1), sampling: resolution.sampling.toFixed(2) })
+        : '';
+    el.classList.toggle('warning', resolution.saturated);
 }
 
 // ============================================================================
@@ -1285,6 +1427,7 @@ async function captureComplete(result) {
                     laserWavelength: result.laser_wavelength,
                     detectionMode: result.detection_mode,
                     csv: result.csv,
+                    resolution: computeResolution(result.csv, result.laser_wavelength),
                 },
                 files
             );
@@ -1365,6 +1508,8 @@ async function updateResultUI(acquisition, identification) {
         const modeKey = acquisition.detectionMode === 'auto' ? 'step3.results.wavelength.detected' : 'step3.results.wavelength.manual';
         elements.resultTime.textContent += ` | ${i18n.t(modeKey, { value: acquisition.laserWavelength.toFixed(1) })}`;
     }
+
+    renderResolution(elements.resultResolution, getAcquisitionResolution(acquisition));
 
     if (identification && identification.length > 0) {
         const top = identification[0];
@@ -1755,6 +1900,8 @@ async function showHistoryAcquisition(idx) {
         const modeKey = acquisition.detectionMode === 'auto' ? 'step3.results.wavelength.detected' : 'step3.results.wavelength.manual';
         elements.historyResultTime.textContent += ` | ${i18n.t(modeKey, { value: acquisition.laserWavelength.toFixed(1) })}`;
     }
+
+    renderResolution(elements.historyResultResolution, getAcquisitionResolution(acquisition));
 
     const identification = acquisition.identification;
 

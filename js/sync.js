@@ -73,6 +73,7 @@ async function syncSession(sessionId) {
             identification: acq.identification,
             laserWavelength: acq.laserWavelength,
             detectionMode: acq.detectionMode,
+            resolution: acq.resolution || null,
         });
 
         // Add files as base64 attachments
