@@ -583,6 +583,10 @@ body {
     color: var(--text-muted);
 }
 
+.result-resolution.warning {
+    color: var(--accent-warning);
+}
+
 .result-actions {
     display: flex;
     gap: var(--spacing-sm);

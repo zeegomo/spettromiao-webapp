@@ -311,6 +311,7 @@ async function addAcquisition(sessionId, data, files = {}) {
         laserWavelength: data.laserWavelength,
         detectionMode: data.detectionMode,
         csv: data.csv,  // CSV string
+        resolution: data.resolution || null,  // Laser line FWHM estimate
         createdAt: new Date().toISOString(),
         fileIds: {},
     };
