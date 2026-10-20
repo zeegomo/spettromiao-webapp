@@ -298,6 +298,10 @@ class LocalCamera:
                     '--nopreview',
                     '--shutter', str(shutter_us),
                     '--gain', str(gain),
+                    # Fixed AWB gains: with auto AWB, libcamera discards ~3
+                    # startup frames (each lasting the full shutter time)
+                    # while AWB converges. 1,1 = raw, unweighted channels.
+                    '--awbgains', '1,1',
                     '-o', tmp_path,
                 ]
                 logger.info("Running command: %s", ' '.join(cmd))
