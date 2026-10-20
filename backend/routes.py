@@ -183,8 +183,11 @@ def capture():
         "summary_plot": None,  # base64 PNG
         "laser_wavelength": None,
         "detection_mode": None,
+        "timings": {},  # seconds per stage, for diagnosing slow captures
         "error": None,
     }
+    timings = result["timings"]
+    t_start = time.perf_counter()
 
     try:
         # Step 1: Capture photo
@@ -194,17 +197,19 @@ def capture():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         result["timestamp"] = timestamp
 
-        # Camera now returns bytes directly
-        photo_bytes = camera.capture_photo(
+        t = time.perf_counter()
+        photo_bytes, raw_image = camera.capture_photo(
             shutter_us=shutter_us,
             gain=gain,
         )
+        timings["capture"] = time.perf_counter() - t
         result["photo"] = base64.b64encode(photo_bytes).decode("ascii")
 
         # Step 2: Extract spectrum
         spectrum = None
 
         try:
+            t = time.perf_counter()
             import cv2
             import numpy as np
             import ramanspy as rp
@@ -214,6 +219,7 @@ def capture():
             from kat.acquisition.image_processing import extract_spectrum_calibrated
             from kat.webapp.utils.plotting import create_summary_plot
             from kat.ml.common.preprocessing import get_standard_preprocessing_pipeline
+            timings["imports"] = time.perf_counter() - t
 
             # Load calibration paths
             calibration_dir = data_dir / "calibration"
@@ -225,17 +231,32 @@ def capture():
                 nparr = np.frombuffer(photo_bytes, np.uint8)
                 image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
+                # Prefer the linear raw frame (mono sensors): no gamma curve,
+                # denoise or 8-bit quantisation. Three identical channels
+                # because extraction takes the max over axis 2 and OpenCV
+                # drops a single-channel axis.
+                if raw_image is not None and raw_image.shape == image.shape[:2]:
+                    logger.info("Extracting spectrum from raw sensor data")
+                    image = cv2.merge([raw_image] * 3)
+                elif raw_image is not None:
+                    logger.warning(
+                        "Raw frame %s does not match JPEG %s, using JPEG",
+                        raw_image.shape, image.shape[:2],
+                    )
+
                 # Determine laser wavelength (auto-detect or manual)
                 laser_nm = None  # Auto-detect
                 if not settings.get("laser_auto_detect", True):
                     laser_nm = settings.get("laser_wavelength", 785.0)
 
+                t = time.perf_counter()
                 spectrum = extract_spectrum_calibrated(
                     image=image,
                     calibration_file=str(wavelength_cal),
                     camera_calibration_file=str(camera_cal),
                     laser_wavelength_nm=laser_nm,
                 )
+                timings["extraction"] = time.perf_counter() - t
 
                 # Convert spectrum to JSON
                 result["spectrum"] = spectrum.to_json_dict()
@@ -263,6 +284,7 @@ def capture():
                     logger.warning(f"Spectrum preprocessing failed: {e}")
 
                 # Create summary plot to BytesIO
+                t = time.perf_counter()
                 try:
                     # Create a temporary file-like object for the photo
                     photo_buffer = io.BytesIO(photo_bytes)
@@ -277,6 +299,7 @@ def capture():
                     result["summary_plot"] = base64.b64encode(summary_buffer.getvalue()).decode("ascii")
                 except Exception as e:
                     logger.warning(f"Summary plot generation failed: {e}")
+                timings["summary_plot"] = time.perf_counter() - t
 
         except ImportError as e:
             logger.warning(f"Spectrum extraction not available: {e}")
@@ -289,4 +312,6 @@ def capture():
         logger.exception("Capture failed")
         result["error"] = str(e)
 
+    timings["total"] = time.perf_counter() - t_start
+    logger.info("Capture timings: %s", {k: round(v, 2) for k, v in timings.items()})
     return jsonify(result)

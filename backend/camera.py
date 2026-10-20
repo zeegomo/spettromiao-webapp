@@ -8,9 +8,17 @@ import tempfile
 import threading
 import time
 from collections import deque
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# DNG tags / values used to read rpicam-still raw files
+PHOTOMETRIC_LINEAR_RAW = 34892  # mono sensor (no colour filter array)
+TAG_BLACK_LEVEL = 50714
+TAG_WHITE_LEVEL = 50717
 
 # picamera2 is only available on Raspberry Pi
 try:
@@ -68,6 +76,44 @@ class StreamOutput(io.BufferedIOBase):
             return self._frame
 
 
+def _dng_tag_value(page, code: int, default: float) -> float:
+    """Read a numeric DNG tag, converting RATIONAL (numerator, denominator) values."""
+    tag = page.tags.get(code)
+    if tag is None:
+        return default
+    value = tag.value
+    if isinstance(value, tuple):
+        if int(tag.dtype) in (5, 10):  # RATIONAL / SRATIONAL
+            return value[0] / value[1]
+        return float(value[0])
+    return float(value)
+
+
+def read_mono_dng(path: str) -> Optional["np.ndarray"]:
+    """
+    Read the raw frame from a DNG written by rpicam-still --raw.
+
+    Returns linear intensities as float32, black-level subtracted and scaled
+    so that full scale is 255 (same range as the JPEG, so thresholds and
+    plots downstream are unaffected). Returns None for colour (Bayer)
+    sensors, whose raw data would need demosaicing.
+    """
+    import numpy as np
+    import tifffile
+
+    with tifffile.TiffFile(path) as tif:
+        # rpicam-still writes a thumbnail in IFD0 and the raw frame in its SubIFD
+        subpages = tif.pages[0].pages
+        page = subpages[0] if subpages else tif.pages[0]
+        if int(page.photometric) != PHOTOMETRIC_LINEAR_RAW:
+            return None
+        raw = page.asarray().astype(np.float32)
+        black = _dng_tag_value(page, TAG_BLACK_LEVEL, 0.0)
+        white = _dng_tag_value(page, TAG_WHITE_LEVEL, 2 ** page.bitspersample - 1)
+
+    return (raw - black) * (255.0 / (white - black))
+
+
 class LocalCamera:
     """
     Local camera interface using picamera2.
@@ -80,7 +126,7 @@ class LocalCamera:
         >>> camera.start_preview()
         >>> frame = camera.get_frame()
         >>> camera.stop_preview()
-        >>> jpeg_bytes = camera.capture_photo(shutter_us=5000000, gain=100)
+        >>> jpeg_bytes, raw = camera.capture_photo(shutter_us=5000000, gain=100)
     """
 
     def __init__(self):
@@ -247,18 +293,20 @@ class LocalCamera:
         self,
         shutter_us: int = 5000000,
         gain: float = 100.0,
-    ) -> bytes:
+    ) -> Tuple[bytes, Optional["np.ndarray"]]:
         """
-        Capture a single photo and return as JPEG bytes.
+        Capture a single photo.
 
-        Uses rpicam-still command-line tool for capture.
+        Uses rpicam-still command-line tool for capture, saving a raw DNG
+        alongside the JPEG.
 
         Args:
             shutter_us: Shutter speed in microseconds
             gain: Camera gain
 
         Returns:
-            JPEG image data as bytes
+            Tuple of (JPEG bytes, linear raw frame or None). The raw frame is
+            only available for mono sensors; see read_mono_dng().
         """
         logger.info("capture_photo() called with shutter_us=%d, gain=%f", shutter_us, gain)
 
@@ -289,6 +337,7 @@ class LocalCamera:
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
                 tmp_path = tmp.name
 
+            dng_path = tmp_path[:tmp_path.rfind('.')] + '.dng'  # rpicam-still naming
             logger.info("Temp file created: %s", tmp_path)
 
             try:
@@ -302,6 +351,7 @@ class LocalCamera:
                     # startup frames (each lasting the full shutter time)
                     # while AWB converges. 1,1 = raw, unweighted channels.
                     '--awbgains', '1,1',
+                    '--raw',
                     '-o', tmp_path,
                 ]
                 logger.info("Running command: %s", ' '.join(cmd))
@@ -321,14 +371,23 @@ class LocalCamera:
                     jpeg_bytes = f.read()
 
                 logger.info("Captured %d bytes", len(jpeg_bytes))
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
 
-        return jpeg_bytes
+                raw = None
+                try:
+                    raw = read_mono_dng(dng_path)
+                    if raw is None:
+                        logger.info("Sensor is not mono, raw frame unused")
+                except Exception as e:
+                    logger.warning("Could not read raw DNG, using JPEG only: %s", e)
+            finally:
+                # Clean up temp files
+                for path in (tmp_path, dng_path):
+                    try:
+                        os.unlink(path)
+                    except Exception:
+                        pass
+
+        return jpeg_bytes, raw
 
     def close(self) -> None:
         """Release camera resources."""
@@ -411,9 +470,9 @@ class MockCamera:
         self,
         shutter_us: int = 5000000,
         gain: float = 100.0,
-    ) -> bytes:
-        """Return mock JPEG bytes."""
-        return self.get_frame() or b""
+    ) -> Tuple[bytes, Optional["np.ndarray"]]:
+        """Return mock JPEG bytes (no raw frame)."""
+        return self.get_frame() or b"", None
 
     def close(self) -> None:
         self._streaming = False

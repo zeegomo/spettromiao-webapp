@@ -1381,6 +1381,7 @@ async function captureComplete(result) {
                 hasCsv: !!result.csv,
                 hasSpectrum: !!result.spectrum,
                 hasPreprocessedSpectrum: !!result.preprocessed_spectrum,
+                timings: result.timings,
             });
 
             // Convert base64 to blobs
