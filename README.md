@@ -39,7 +39,7 @@ If you want to sync data across devices:
 sudo git clone https://github.com/zeegomo/spettromiao-webapp.git /opt/spettromiao-webapp
 sudo chown -R $(whoami):$(whoami) /opt/spettromiao-webapp
 cd /opt/spettromiao-webapp
-./setup-pi.sh             # add --hotspot to also create the "spettromiao" WiFi network
+./setup-pi.sh
 ```
 
 Run it as the user the service should run as (not root). It is safe to re-run,
@@ -59,11 +59,6 @@ and it:
 - installs and starts the `spettromiao-webapp` systemd service (Gunicorn on
   port 80, serving the API and the frontend) for the current user and checkout
   path
-- with `--hotspot`: sets up the WiFi access point (`WIFI_SSID`,
-  `WIFI_PASSWORD`, `WIFI_IP`, default `spettromiao` / `kat12345` /
-  `192.168.4.1`) with local-only DHCP. The switch to access point mode happens
-  last and drops a WiFi SSH session; from then on `wlan0` is the hotspot, so
-  the Pi no longer joins other WiFi networks (use Ethernet for internet)
 - checks picamera2, kat_board, the spectrum processing stack, the board on I²C
   and the service, and prints what failed
 
@@ -85,7 +80,7 @@ sudo journalctl -u spettromiao-webapp -b | grep -E "LocalCamera|LocalBoard|high 
 
 All three should appear. `MockCamera` or `MockBoard` means picamera2 or the
 controller board wasn't usable, and the warning just before it says why. Then
-open `http://192.168.4.1` (or the Pi's address) and take a capture: the
+open `http://<pi-address>` and take a capture: the
 board's `LSR` LED should light only during the exposure.
 
 ### What the backend does with the hardware

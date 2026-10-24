@@ -7,15 +7,11 @@
 # Safe to re-run: every step skips work that is already done.
 #
 # Usage (from the repo checkout, e.g. /opt/spettromiao-webapp):
-#   ./setup-pi.sh              # backend + service
-#   ./setup-pi.sh --hotspot    # also create the "spettromiao" WiFi hotspot
+#   ./setup-pi.sh
 #
 # Environment overrides:
 #   KAT_DIR        where the kat repo is (cloned if missing)   [~/kat]
 #   KAT_REPO       URL to clone kat from                       [https://github.com/zeegomo/kat.git]
-#   WIFI_SSID      hotspot SSID                                [spettromiao]
-#   WIFI_PASSWORD  hotspot password                            [kat12345]
-#   WIFI_IP        hotspot IP of the Pi                        [192.168.4.1]
 #
 
 set -euo pipefail
@@ -27,16 +23,9 @@ KAT_REPO="${KAT_REPO:-https://github.com/zeegomo/kat.git}"
 SERVICE_NAME="spettromiao-webapp"
 CALIB_DIR="$HOME/.kat/calibration"
 
-WIFI_SSID="${WIFI_SSID:-spettromiao}"
-WIFI_PASSWORD="${WIFI_PASSWORD:-kat12345}"
-WIFI_IP="${WIFI_IP:-192.168.4.1}"
-HOTSPOT_CON="spettromiao-hotspot"
-
-SETUP_HOTSPOT=false
 for arg in "$@"; do
     case "$arg" in
-        --hotspot) SETUP_HOTSPOT=true ;;
-        -h|--help) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
     esac
 done
@@ -137,45 +126,6 @@ for f in calib_results.npz calibration.json; do
 done
 
 # =============================================================================
-# WiFi hotspot (optional)
-# =============================================================================
-
-if [ "$SETUP_HOTSPOT" = true ]; then
-    log_info "Setting up WiFi hotspot $WIFI_SSID..."
-    sudo apt-get install -y dnsmasq network-manager
-    sudo systemctl enable --now NetworkManager
-
-    # Update the connection in place rather than recreating it, so re-running
-    # doesn't take down a hotspot you may be connected through
-    if ! nmcli connection show "$HOTSPOT_CON" >/dev/null 2>&1; then
-        sudo nmcli connection add type wifi ifname wlan0 con-name "$HOTSPOT_CON" ssid "$WIFI_SSID"
-    fi
-    sudo nmcli connection modify "$HOTSPOT_CON" \
-        connection.autoconnect yes 802-11-wireless.ssid "$WIFI_SSID" \
-        802-11-wireless.mode ap wifi.band bg \
-        ipv4.method manual ipv4.addresses "$WIFI_IP/24" ipv6.method disabled \
-        wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$WIFI_PASSWORD"
-
-    # Local-only DHCP: no gateway or DNS, so phones keep mobile data for internet
-    DHCP_START="${WIFI_IP%.*}.10"
-    DHCP_END="${WIFI_IP%.*}.100"
-    DNSMASQ_CONF=/etc/dnsmasq.d/spettromiao-hotspot.conf
-    DNSMASQ_NEW="interface=wlan0
-dhcp-range=$DHCP_START,$DHCP_END,255.255.255.0,24h
-dhcp-option=3
-dhcp-option=6"
-    # dnsmasq only answers on interfaces with an address in dhcp-range's
-    # subnet, so it stays silent until wlan0 is the hotspot
-    sudo systemctl enable dnsmasq
-    if [ "$(cat "$DNSMASQ_CONF" 2>/dev/null)" != "$DNSMASQ_NEW" ]; then
-        echo "$DNSMASQ_NEW" | sudo tee "$DNSMASQ_CONF" >/dev/null
-        sudo systemctl restart dnsmasq
-    elif ! systemctl is-active --quiet dnsmasq; then
-        sudo systemctl start dnsmasq
-    fi
-fi
-
-# =============================================================================
 # Systemd service
 # =============================================================================
 
@@ -226,19 +176,6 @@ else
 fi
 echo "  Service: sudo systemctl status $SERVICE_NAME"
 echo "  Logs:    sudo journalctl -u $SERVICE_NAME -f"
-if [ "$SETUP_HOTSPOT" = true ]; then
-    echo "  WiFi:    $WIFI_SSID / $WIFI_PASSWORD, then open http://$WIFI_IP"
-fi
 if [ "$RELOGIN" = true ]; then
     log_warn "Added $USER to gpio/i2c/video groups: log out and back in to use them from your shell"
-fi
-
-# Last, because switching wlan0 to access point mode drops any WiFi/SSH session
-if [ "$SETUP_HOTSPOT" = true ]; then
-    if nmcli -t -f NAME connection show --active | grep -qx "$HOTSPOT_CON"; then
-        log_info "Hotspot already active (changed WiFi settings apply on next boot)"
-    else
-        log_warn "Switching wlan0 to the $WIFI_SSID hotspot now: a WiFi SSH session will disconnect"
-        sudo nmcli connection up "$HOTSPOT_CON" || log_warn "Hotspot didn't come up yet, it will on next boot"
-    fi
 fi
