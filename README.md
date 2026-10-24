@@ -28,6 +28,7 @@ If you want to sync data across devices:
 ### Prerequisites
 
 - Raspberry Pi with camera module
+- KAT controller v2 board (switches the laser on only during captures)
 - Python 3.9+
 - Calibration files from [kat](https://github.com/zeegomo/kat) placed in `~/.kat/calibration/`
 
@@ -50,7 +51,17 @@ pip install flask flask-cors gunicorn
 
 # Spectrum processing (required on Pi for capture & analysis)
 pip install picamera2 opencv-python numpy ramanspy matplotlib kat
+
+# Controller v2 board (laser switch) via kat_board from the kat repo
+pip install smbus2 gpiozero lgpio
 ```
+
+The backend turns the laser on right before each capture (with a short
+warm-up) and off as soon as the photo is taken, even if the capture fails.
+Enable I²C (`sudo raspi-config nonint do_i2c 0`) and check the board answers
+with `i2cdetect -y 1` (address `0x48`). If `kat_board` is missing or the board
+can't be initialised, the backend logs a warning and captures run without
+laser control.
 
 ### 3. Set up the systemd service
 

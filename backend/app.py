@@ -11,6 +11,7 @@ from pathlib import Path
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 
+from .board import get_board
 from .camera import get_camera
 
 # Set up logging
@@ -37,6 +38,10 @@ def create_app() -> Flask:
     app.config["camera"] = camera
     app.config["DATA_DIR"] = DATA_DIR
     atexit.register(camera.close)
+
+    board = get_board()
+    app.config["board"] = board
+    atexit.register(board.close)
 
     # Ephemeral settings (not persisted - browser owns the settings)
     app.config["settings"] = {

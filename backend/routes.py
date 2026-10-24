@@ -170,6 +170,7 @@ def capture():
     Browser is responsible for storing data in IndexedDB.
     """
     camera = current_app.config["camera"]
+    board = current_app.config["board"]
     settings = current_app.config["settings"]
     data_dir = current_app.config["DATA_DIR"]
 
@@ -194,11 +195,12 @@ def capture():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         result["timestamp"] = timestamp
 
-        # Camera now returns bytes directly
-        photo_bytes = camera.capture_photo(
-            shutter_us=shutter_us,
-            gain=gain,
-        )
+        # Laser is on only for the exposure; switched off even if capture fails
+        with board.laser_enabled():
+            photo_bytes = camera.capture_photo(
+                shutter_us=shutter_us,
+                gain=gain,
+            )
         result["photo"] = base64.b64encode(photo_bytes).decode("ascii")
 
         # Step 2: Extract spectrum
