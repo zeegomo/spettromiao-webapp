@@ -1,0 +1,7 @@
+# Backend dependencies installed into the venv by setup-pi.sh.
+# picamera2, gpiozero and lgpio come from apt (venv uses --system-site-packages),
+# kat (spectrum processing + kat_board) is installed from its repo.
+flask
+flask-cors
+gunicorn
+smbus2

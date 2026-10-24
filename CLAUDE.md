@@ -45,6 +45,8 @@ After making changes:
 │   └── it.json         # Italian translations
 ├── data/
 │   └── library.json    # Reference spectra library
+├── backend/            # Flask backend on the Pi (camera, controller board, processing)
+├── setup-pi.sh         # Raspberry Pi setup script (see README)
 └── pi-loader/
     └── index.html      # Primary loader: Pi serves this, fetches app from GitHub, caches in IndexedDB
 ```
