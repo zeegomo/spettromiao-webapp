@@ -28,8 +28,7 @@ If you want to sync data across devices:
 ### Prerequisites
 
 - Raspberry Pi OS (Bookworm or later) with the camera working
-  (`rpicam-still -o test.jpg`). If the sensor needs a custom driver or a
-  custom-built libcamera, install those first: the setup keeps them.
+  (`rpicam-still -o test.jpg`)
 - KAT controller v2 board on the 40-pin header (laser switch + heater + NTC)
 - Access to the private [kat](https://github.com/zeegomo/kat) repo (a GitHub
   token for https, or an SSH key on the Pi)
@@ -46,12 +45,14 @@ cd /opt/spettromiao-webapp
 Run it as the user the service should run as (not root). It is safe to re-run,
 and it:
 
-- installs the system packages (`python3-picamera2`, `gpiozero`/`lgpio`,
-  `v4l-utils`, `i2c-tools`, `rpicam-apps` if missing), enables I²C and adds
-  the user to the `gpio`, `i2c` and `video` groups
+- installs the system packages (`python3-picamera2` with the system
+  libcamera, `gpiozero`/`lgpio`, `v4l-utils`, `i2c-tools`, `rpicam-apps` if
+  missing), enables I²C and adds the user to the `gpio`, `i2c` and `video`
+  groups
 - creates `.venv` with `--system-site-packages` (picamera2's libcamera
-  bindings only exist system-wide) and installs `backend/requirements.txt`,
-  keeping pip from replacing the system numpy that picamera2 is built against
+  bindings only exist system-wide; an existing `.venv` is switched over) and
+  installs `backend/requirements.txt`, keeping pip from replacing the system
+  numpy that picamera2 is built against
 - clones kat into `~/kat` (override with `KAT_DIR` / `KAT_REPO`, e.g.
   `KAT_REPO=git@github.com:zeegomo/kat.git`) and installs it editable, which
   also provides `kat_board`

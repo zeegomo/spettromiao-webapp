@@ -65,21 +65,10 @@ fi
 
 log_info "Installing system packages..."
 sudo apt-get update
+# picamera2/libcamera, gpiozero and lgpio are used from the system install
 sudo apt-get install -y \
-    git python3-venv python3-dev python3-gpiozero python3-lgpio \
-    v4l-utils i2c-tools libcap-dev
-
-# picamera2 needs the libcamera Python bindings, which only exist system-wide.
-# Keep a custom-built libcamera if there is one; otherwise use Raspberry Pi OS's.
-PICAMERA2_FROM_PIP=false
-if /usr/bin/python3 -c "import picamera2" 2>/dev/null; then
-    log_info "picamera2 already available system-wide"
-elif /usr/bin/python3 -c "import libcamera" 2>/dev/null; then
-    log_info "Custom libcamera found, picamera2 will be installed into the venv"
-    PICAMERA2_FROM_PIP=true
-else
-    sudo apt-get install -y python3-picamera2
-fi
+    git python3-venv python3-dev python3-picamera2 python3-gpiozero python3-lgpio \
+    v4l-utils i2c-tools
 
 if ! command -v rpicam-still >/dev/null; then
     sudo apt-get install -y rpicam-apps-lite
@@ -111,6 +100,9 @@ done
 if [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment at $VENV_DIR..."
     python3 -m venv --system-site-packages "$VENV_DIR"
+elif ! grep -q "^include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg"; then
+    log_info "Enabling system site-packages in the existing $VENV_DIR..."
+    sed -i "s/^include-system-site-packages = .*/include-system-site-packages = true/" "$VENV_DIR/pyvenv.cfg"
 fi
 PIP="$VENV_DIR/bin/pip"
 "$PIP" install --upgrade pip
@@ -125,9 +117,6 @@ fi
 
 log_info "Installing backend dependencies..."
 "$PIP" install -c "$CONSTRAINTS" -r "$APP_DIR/backend/requirements.txt"
-if [ "$PICAMERA2_FROM_PIP" = true ]; then
-    "$PIP" install -c "$CONSTRAINTS" picamera2
-fi
 
 if [ ! -f "$KAT_DIR/pyproject.toml" ]; then
     log_info "Cloning kat into $KAT_DIR (private repo: git will ask for a GitHub username + token)..."
@@ -156,30 +145,34 @@ if [ "$SETUP_HOTSPOT" = true ]; then
     sudo apt-get install -y dnsmasq network-manager
     sudo systemctl enable --now NetworkManager
 
-    if nmcli connection show "$HOTSPOT_CON" >/dev/null 2>&1; then
-        sudo nmcli connection delete "$HOTSPOT_CON"
+    # Update the connection in place rather than recreating it, so re-running
+    # doesn't take down a hotspot you may be connected through
+    if ! nmcli connection show "$HOTSPOT_CON" >/dev/null 2>&1; then
+        sudo nmcli connection add type wifi ifname wlan0 con-name "$HOTSPOT_CON" ssid "$WIFI_SSID"
     fi
-    sudo nmcli connection add \
-        type wifi ifname wlan0 con-name "$HOTSPOT_CON" autoconnect yes \
-        ssid "$WIFI_SSID" mode ap \
-        ipv4.method manual ipv4.addresses "$WIFI_IP/24" \
-        ipv6.method disabled
     sudo nmcli connection modify "$HOTSPOT_CON" \
-        wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$WIFI_PASSWORD" wifi.band bg
+        connection.autoconnect yes 802-11-wireless.ssid "$WIFI_SSID" \
+        802-11-wireless.mode ap wifi.band bg \
+        ipv4.method manual ipv4.addresses "$WIFI_IP/24" ipv6.method disabled \
+        wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$WIFI_PASSWORD"
 
     # Local-only DHCP: no gateway or DNS, so phones keep mobile data for internet
     DHCP_START="${WIFI_IP%.*}.10"
     DHCP_END="${WIFI_IP%.*}.100"
-    sudo tee /etc/dnsmasq.d/spettromiao-hotspot.conf >/dev/null <<EOF
-interface=wlan0
+    DNSMASQ_CONF=/etc/dnsmasq.d/spettromiao-hotspot.conf
+    DNSMASQ_NEW="interface=wlan0
 dhcp-range=$DHCP_START,$DHCP_END,255.255.255.0,24h
 dhcp-option=3
-dhcp-option=6
-EOF
+dhcp-option=6"
     # dnsmasq only answers on interfaces with an address in dhcp-range's
     # subnet, so it stays silent until wlan0 is the hotspot
     sudo systemctl enable dnsmasq
-    sudo systemctl restart dnsmasq
+    if [ "$(cat "$DNSMASQ_CONF" 2>/dev/null)" != "$DNSMASQ_NEW" ]; then
+        echo "$DNSMASQ_NEW" | sudo tee "$DNSMASQ_CONF" >/dev/null
+        sudo systemctl restart dnsmasq
+    elif ! systemctl is-active --quiet dnsmasq; then
+        sudo systemctl start dnsmasq
+    fi
 fi
 
 # =============================================================================
@@ -242,6 +235,10 @@ fi
 
 # Last, because switching wlan0 to access point mode drops any WiFi/SSH session
 if [ "$SETUP_HOTSPOT" = true ]; then
-    log_warn "Switching wlan0 to the $WIFI_SSID hotspot now: a WiFi SSH session will disconnect"
-    sudo nmcli connection up "$HOTSPOT_CON" || log_warn "Hotspot didn't come up yet, it will on next boot"
+    if nmcli -t -f NAME connection show --active | grep -qx "$HOTSPOT_CON"; then
+        log_info "Hotspot already active (changed WiFi settings apply on next boot)"
+    else
+        log_warn "Switching wlan0 to the $WIFI_SSID hotspot now: a WiFi SSH session will disconnect"
+        sudo nmcli connection up "$HOTSPOT_CON" || log_warn "Hotspot didn't come up yet, it will on next boot"
+    fi
 fi
