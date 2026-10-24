@@ -1,5 +1,6 @@
 """Local camera interface for Raspberry Pi using picamera2."""
 
+import glob
 import io
 import logging
 import os
@@ -419,6 +420,47 @@ class MockCamera:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
+
+
+def enable_high_conversion_gain() -> None:
+    """
+    Turn on the sensor's high conversion gain (HCG) mode.
+
+    The sensor driver exposes it as an `hcg_enable` control on one of the
+    V4L2 sub-devices; find it and set it to 1. libcamera doesn't manage this
+    control, so the value sticks for later captures. Failures are logged,
+    not raised, so the app still starts without it (e.g. off the Pi).
+    """
+    subdevs = sorted(glob.glob("/dev/v4l-subdev*"))
+    if not subdevs:
+        logger.warning("No V4L2 sub-devices found, cannot enable HCG")
+        return
+
+    found = False
+    for subdev in subdevs:
+        try:
+            ctrls = subprocess.run(
+                ["v4l2-ctl", "-d", subdev, "--list-ctrls"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning("Cannot query %s for HCG (is v4l-utils installed?): %s", subdev, e)
+            return
+        if "hcg_enable" not in ctrls.stdout:
+            continue
+
+        found = True
+        result = subprocess.run(
+            ["v4l2-ctl", "-d", subdev, "--set-ctrl", "hcg_enable=1"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            logger.info("Enabled high conversion gain on %s", subdev)
+        else:
+            logger.warning("Failed to enable HCG on %s: %s", subdev, result.stderr.strip())
+
+    if not found:
+        logger.warning("No V4L2 sub-device exposes hcg_enable, HCG not enabled")
 
 
 def get_camera() -> "LocalCamera | MockCamera":

@@ -63,6 +63,11 @@ with `i2cdetect -y 1` (address `0x48`). If `kat_board` is missing or the board
 can't be initialised, the backend logs a warning and captures run without
 laser control.
 
+At startup the backend also enables the sensor's high conversion gain by
+setting `hcg_enable=1` on whichever `/dev/v4l-subdev*` exposes it. This needs
+`v4l2-ctl` (`sudo apt install v4l-utils`); if it's missing, a warning is
+logged and the camera runs in its default gain mode.
+
 ### 3. Set up the systemd service
 
 ```bash

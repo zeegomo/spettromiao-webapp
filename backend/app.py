@@ -12,7 +12,7 @@ from flask import Flask, send_from_directory
 from flask_cors import CORS
 
 from .board import get_board
-from .camera import get_camera
+from .camera import enable_high_conversion_gain, get_camera
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +32,8 @@ def create_app() -> Flask:
     # Enable CORS for cross-origin API calls (webapp hosted on GitHub Pages)
     # allow_private_network=True enables Private Network Access for older Chrome versions
     CORS(app, resources={r"/api/*": {"origins": "*"}}, allow_private_network=True)
+
+    enable_high_conversion_gain()
 
     # Store global state in app config
     camera = get_camera()
