@@ -2522,83 +2522,28 @@ function stopSyncStatusPolling() {
 // Version Management
 // ============================================================================
 
-const VERSION_CONFIG = {
-    githubBase: 'https://zeegomo.github.io/spettromiao-webapp',
-    loaderCacheDb: 'spettromiao-loader-cache',
-    loaderCacheStore: 'app-files',
-    cacheVersionKey: 'cache-version',
-};
+// The Pi updates itself from GitHub (git pull + backend restart, see
+// backend/updater.py); the browser only starts the update and follows it.
 
-// Files to fetch from GitHub for updates (must match pi-loader)
-const UPDATE_APP_FILES = [
-    'index.html',
-    'css/style.css',
-    'js/db.js',
-    'js/i18n.js',
-    'js/identifier.js',
-    'js/sync.js',
-    'js/app.js',
-    'manifest.json',
-    'sw.js',
-    'data/library.json',
-    'locales/en.json',
-    'locales/it.json'
-];
+const UPDATE_POLL_MS = 1000;
+const UPDATE_RESTART_TIMEOUT_MS = 180000;
 
-// Store remote version when available
-let remoteVersionCache = null;
-
-function openLoaderCacheDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(VERSION_CONFIG.loaderCacheDb, 1);
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-        request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            if (!db.objectStoreNames.contains(VERSION_CONFIG.loaderCacheStore)) {
-                db.createObjectStore(VERSION_CONFIG.loaderCacheStore, { keyPath: 'path' });
-            }
-        };
-    });
+// The old in-browser updater cached app files in IndexedDB. Served straight
+// from the Pi that cache is never read, and identifier.js could fall back to a
+// stale library.json from it, so drop it (unless pi-loader rendered this page).
+function clearLegacyLoaderCache() {
+    if (window.__PRELOADED_LOCALES) return;
+    try {
+        indexedDB.deleteDatabase('spettromiao-loader-cache');
+    } catch (e) { }
 }
 
 async function getCurrentVersion() {
-    // Try loader cache DB first (used when served via pi-loader)
     try {
-        const db = await openLoaderCacheDB();
-        const version = await new Promise((resolve, reject) => {
-            const tx = db.transaction(VERSION_CONFIG.loaderCacheStore, 'readonly');
-            const store = tx.objectStore(VERSION_CONFIG.loaderCacheStore);
-            const request = store.get(VERSION_CONFIG.cacheVersionKey);
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => resolve(request.result?.content || null);
-        });
-        if (version) return version;
-    } catch (error) {
-        console.error('Failed to get current version from loader cache:', error);
-    }
-
-    // Fallback: fetch version.txt from same origin (direct Flask serving)
-    try {
-        const resp = await fetch('version.txt', { signal: AbortSignal.timeout(3000) });
+        const resp = await fetch(`version.txt?t=${Date.now()}`, { signal: AbortSignal.timeout(3000) });
         if (resp.ok) return (await resp.text()).trim();
     } catch (e) { }
-
     return null;
-}
-
-async function fetchRemoteVersion() {
-    try {
-        const response = await fetch(`${VERSION_CONFIG.githubBase}/version.txt?t=${Date.now()}`, {
-            signal: AbortSignal.timeout(10000)
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const version = await response.text();
-        return version.trim();
-    } catch (error) {
-        console.error('Failed to fetch remote version:', error);
-        return null;
-    }
 }
 
 async function loadVersionInfo() {
@@ -2612,157 +2557,112 @@ function showVersionStatus(message, type) {
     elements.versionStatus.className = `version-status ${type}`;
 }
 
+function describeUpdateIssue(issue) {
+    return i18n.t(`settings.version.issues.${issue.code}`, { detail: issue.detail });
+}
+
 async function checkForUpdates() {
     showVersionStatus(i18n.t('settings.version.checking'), 'checking');
     elements.checkUpdateBtn.disabled = true;
     elements.updateNowBtn.classList.add('hidden');
 
     try {
-        const [currentVersion, remoteVersion] = await Promise.all([
-            getCurrentVersion(),
-            fetchRemoteVersion()
-        ]);
+        // The Pi runs git fetch for the webapp and kat, which can be slow
+        const info = await api.get('/update/check', 130000);
+        elements.currentVersion.textContent = info.current_version || i18n.t('settings.version.unknown');
 
-        elements.currentVersion.textContent = currentVersion || i18n.t('settings.version.unknown');
-
-        if (!remoteVersion) {
-            showVersionStatus(i18n.t('settings.version.couldNotCheck'), 'error');
+        if (info.blockers.length) {
+            const lines = [i18n.t('settings.version.blocked'), ...info.blockers.map(describeUpdateIssue)];
+            showVersionStatus(lines.join('\n'), 'error');
             return;
         }
 
-        remoteVersionCache = remoteVersion;
-
-        if (!currentVersion) {
-            showVersionStatus(i18n.t('settings.version.available', { version: remoteVersion }), 'update-available');
-            elements.updateNowBtn.classList.remove('hidden');
-        } else if (currentVersion === remoteVersion) {
-            showVersionStatus(i18n.t('settings.version.upToDate'), 'up-to-date');
+        let message;
+        if (info.latest_version && info.latest_version !== info.current_version) {
+            message = i18n.t('settings.version.available', { version: info.latest_version });
+        } else if (info.update_available) {
+            // kat changed, or webapp commits without a version bump
+            message = i18n.t('settings.version.changesAvailable');
         } else {
-            showVersionStatus(i18n.t('settings.version.available', { version: remoteVersion }), 'update-available');
+            message = i18n.t('settings.version.upToDate');
+        }
+        const lines = [message, ...info.warnings.map(describeUpdateIssue)];
+        showVersionStatus(lines.join('\n'), info.update_available ? 'update-available' : 'up-to-date');
+        if (info.update_available) {
             elements.updateNowBtn.classList.remove('hidden');
         }
     } catch (error) {
         console.error('Error checking for updates:', error);
-        showVersionStatus(i18n.t('settings.version.couldNotCheck'), 'error');
+        showVersionStatus(i18n.t('settings.version.couldNotCheck', { error: error.message }), 'error');
     } finally {
         elements.checkUpdateBtn.disabled = false;
     }
 }
 
 async function triggerUpdate() {
-    showVersionStatus(i18n.t('settings.version.downloading'), 'checking');
     elements.updateNowBtn.disabled = true;
     elements.checkUpdateBtn.disabled = true;
+    showVersionStatus(i18n.t('settings.version.steps.waiting'), 'checking');
 
+    let restartingSince = null;
+    let notices = [];
     try {
-        const db = await openLoaderCacheDB();
-        const files = {};
+        const serverStartedAt = (await api.post('/update', {}, 10000)).started_at;
 
-        // Fetch all files from GitHub
-        const fetchPromises = UPDATE_APP_FILES.map(async (path) => {
-            const response = await fetch(
-                `${VERSION_CONFIG.githubBase}/${path}?t=${Date.now()}`,
-                { signal: AbortSignal.timeout(30000) }
-            );
-            if (!response.ok) throw new Error(`Failed to fetch ${path}: HTTP ${response.status}`);
-            const content = await response.text();
-            files[path] = content;
+        for (;;) {
+            await new Promise(resolve => setTimeout(resolve, UPDATE_POLL_MS));
 
-            // Cache the file
-            const tx = db.transaction(VERSION_CONFIG.loaderCacheStore, 'readwrite');
-            const store = tx.objectStore(VERSION_CONFIG.loaderCacheStore);
-            await new Promise((resolve, reject) => {
-                const request = store.put({ path, content, timestamp: Date.now() });
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => resolve();
-            });
-        });
+            let status = null;
+            try {
+                status = await api.get('/update/status', 5000);
+            } catch (error) {
+                // The backend is down while it restarts
+                if (restartingSince === null) restartingSince = Date.now();
+            }
 
-        await Promise.all(fetchPromises);
+            if (status && status.started_at !== serverStartedAt) {
+                // A new backend process is running the updated code
+                if (notices.length) {
+                    alert(notices.map(describeUpdateIssue).join('\n\n'));
+                }
+                showVersionStatus(i18n.t('settings.version.steps.reloading'), 'checking');
+                location.reload();
+                return;
+            }
+            if (restartingSince !== null && Date.now() - restartingSince > UPDATE_RESTART_TIMEOUT_MS) {
+                throw new Error(i18n.t('settings.version.serverNoReturn'));
+            }
+            if (!status) continue;
 
-        // Save the new version
-        if (remoteVersionCache) {
-            const tx = db.transaction(VERSION_CONFIG.loaderCacheStore, 'readwrite');
-            const store = tx.objectStore(VERSION_CONFIG.loaderCacheStore);
-            await new Promise((resolve, reject) => {
-                const request = store.put({
-                    path: VERSION_CONFIG.cacheVersionKey,
-                    content: remoteVersionCache,
-                    timestamp: Date.now()
-                });
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => resolve();
-            });
+            notices = status.notices;
+            if (status.state === 'failed') {
+                throw new Error(status.error);
+            }
+            if (status.state === 'done') {
+                // Nothing was restarted: already up to date, or the backend
+                // isn't running under gunicorn (restart_manually notice)
+                const installed = notices.some(n => n.code === 'restart_manually');
+                const lines = installed ? [] : [i18n.t('settings.version.upToDate')];
+                lines.push(...notices.map(describeUpdateIssue));
+                showVersionStatus(lines.join('\n'), installed ? 'update-available' : 'up-to-date');
+                elements.updateNowBtn.classList.add('hidden');
+                elements.updateNowBtn.disabled = false;
+                elements.checkUpdateBtn.disabled = false;
+                return;
+            }
+            if (status.state !== 'restarting') {
+                restartingSince = null; // a missed poll mid-update isn't a restart
+            } else if (restartingSince === null) {
+                restartingSince = Date.now();
+            }
+            showVersionStatus(i18n.t(`settings.version.steps.${status.step}`), 'checking');
         }
-
-        showVersionStatus(i18n.t('settings.version.applying'), 'checking');
-
-        // Render the new version immediately
-        renderAppFromFiles(files);
     } catch (error) {
-        console.error('Error triggering update:', error);
+        console.error('Update failed:', error);
         showVersionStatus(i18n.t('settings.version.failed', { error: error.message }), 'error');
         elements.updateNowBtn.disabled = false;
         elements.checkUpdateBtn.disabled = false;
     }
-}
-
-function renderAppFromFiles(files) {
-    // Parse the HTML
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(files['index.html'], 'text/html');
-
-    // Inline the CSS
-    const styleLinks = doc.querySelectorAll('link[rel="stylesheet"]');
-    styleLinks.forEach(link => {
-        const href = link.getAttribute('href');
-        const cssPath = href.startsWith('./') ? href.slice(2) : href;
-        if (files[cssPath]) {
-            const style = doc.createElement('style');
-            style.textContent = files[cssPath];
-            link.replaceWith(style);
-        }
-    });
-
-    // Inline the JavaScript
-    const scripts = doc.querySelectorAll('script[src]');
-    scripts.forEach(script => {
-        const src = script.getAttribute('src');
-        const jsPath = src.startsWith('./') ? src.slice(2) : src;
-        if (files[jsPath]) {
-            const newScript = doc.createElement('script');
-            newScript.textContent = files[jsPath];
-            script.replaceWith(newScript);
-        }
-    });
-
-    // Update manifest link to inline data URL
-    if (files['manifest.json']) {
-        const manifestLink = doc.querySelector('link[rel="manifest"]');
-        if (manifestLink) {
-            const dataUrl = 'data:application/json,' + encodeURIComponent(files['manifest.json']);
-            manifestLink.setAttribute('href', dataUrl);
-        }
-    }
-
-    // Inject preloaded locale data so i18n works without fetching locale files
-    const localeData = {};
-    if (files['locales/en.json']) {
-        try { localeData.en = JSON.parse(files['locales/en.json']); } catch (e) {}
-    }
-    if (files['locales/it.json']) {
-        try { localeData.it = JSON.parse(files['locales/it.json']); } catch (e) {}
-    }
-    if (Object.keys(localeData).length > 0) {
-        const localeScript = doc.createElement('script');
-        localeScript.textContent = `window.__PRELOADED_LOCALES = ${JSON.stringify(localeData)};`;
-        doc.head.insertBefore(localeScript, doc.head.firstChild);
-    }
-
-    // Write the complete document
-    document.open();
-    document.write(doc.documentElement.outerHTML);
-    document.close();
 }
 
 // ============================================================================
@@ -3167,6 +3067,7 @@ async function init() {
 
     setupStartupModalEventListeners();
     registerServiceWorkerInBackground();
+    clearLegacyLoaderCache();
 
     // Initialize i18n first (before any i18n.t() calls)
     await i18n.init();

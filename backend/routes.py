@@ -15,6 +15,8 @@ from typing import Generator
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
+from . import updater
+
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__)
@@ -106,6 +108,8 @@ def preview_stream():
 def start_preview():
     """Start camera preview."""
     logger.info("Preview start requested")
+    if current_app.config["updater"].is_running():
+        return jsonify({"status": "error", "message": "An update is in progress"}), 409
     camera = current_app.config["camera"]
 
     # Note: start_preview() handles the "already streaming" case internally under lock,
@@ -169,6 +173,14 @@ def capture():
     Returns JSON result with all data inline as base64 - nothing saved to disk.
     Browser is responsible for storing data in IndexedDB.
     """
+    if current_app.config["updater"].is_running():
+        return jsonify({"success": False, "error": "An update is in progress"}), 409
+
+    with current_app.config["capture_lock"]:
+        return _capture()
+
+
+def _capture():
     camera = current_app.config["camera"]
     board = current_app.config["board"]
     settings = current_app.config["settings"]
@@ -292,3 +304,44 @@ def capture():
         result["error"] = str(e)
 
     return jsonify(result)
+
+
+# ============================================================================
+# Update Endpoints - pull from GitHub and restart (see updater.py)
+# ============================================================================
+
+
+def _require_local():
+    """Only the Pi itself may check for or start updates."""
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return jsonify({
+            "error": "Updates can only be run on the Pi itself (open http://localhost)",
+        }), 403
+    return None
+
+
+@api_bp.route("/update/check", methods=["GET"])
+def update_check():
+    """Fetch from GitHub and report whether the webapp or kat can be updated."""
+    denied = _require_local()
+    if denied:
+        return denied
+    return jsonify(updater.check())
+
+
+@api_bp.route("/update", methods=["POST"])
+def update_start():
+    """Start updating in the background; poll /update/status for progress."""
+    denied = _require_local()
+    if denied:
+        return denied
+    upd = current_app.config["updater"]
+    if not upd.start():
+        return jsonify({"error": "An update is already running"}), 409
+    return jsonify(upd.status()), 202
+
+
+@api_bp.route("/update/status", methods=["GET"])
+def update_status():
+    """Progress of the current update, and when this server process started."""
+    return jsonify(current_app.config["updater"].status())

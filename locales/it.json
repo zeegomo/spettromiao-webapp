@@ -232,12 +232,32 @@
       "current": "Versione corrente:",
       "unknown": "sconosciuta",
       "checking": "Verifica aggiornamenti...",
-      "couldNotCheck": "Impossibile verificare aggiornamenti",
+      "couldNotCheck": "Impossibile controllare gli aggiornamenti: {error}",
       "upToDate": "Aggiornato",
       "available": "Aggiornamento disponibile: {version}",
-      "downloading": "Download aggiornamento...",
-      "applying": "Applicazione aggiornamento...",
-      "failed": "Aggiornamento fallito: {error}"
+      "failed": "Aggiornamento fallito: {error}",
+      "changesAvailable": "Aggiornamento disponibile",
+      "blocked": "Impossibile aggiornare automaticamente:",
+      "serverNoReturn": "il server dell'app non è ripartito dopo il riavvio. Controlla: sudo journalctl -u spettromiao-webapp -e",
+      "steps": {
+        "waiting": "In attesa che finisca l'acquisizione in corso...",
+        "checking": "Controllo GitHub...",
+        "pulling": "Download dell'aggiornamento...",
+        "installing": "Installazione delle dipendenze (può richiedere qualche minuto)...",
+        "restarting": "Riavvio del server dell'app...",
+        "reloading": "Ricaricamento..."
+      },
+      "issues": {
+        "check_failed": "Impossibile raggiungere GitHub: {detail}",
+        "local_changes": "La cartella dell'app ha modifiche locali: {detail}",
+        "local_commits": "La cartella dell'app ha {detail} commit locali non presenti su GitHub",
+        "kat_not_found": "Cartella di kat non trovata, verrà aggiornata solo l'app",
+        "kat_check_failed": "kat non può essere aggiornato (nessun accesso a GitHub?): {detail}",
+        "kat_local_changes": "kat ha modifiche locali e non verrà aggiornato: {detail}",
+        "kat_local_commits": "kat ha {detail} commit locali non presenti su GitHub e non verrà aggiornato",
+        "setup_changed": "Lo script di installazione è cambiato: esegui ./setup-pi.sh nella cartella dell'app per completare l'aggiornamento.",
+        "restart_manually": "Aggiornamento installato: riavvia il server dell'app per usarlo."
+      }
     }
   },
   "history": {

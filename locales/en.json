@@ -232,12 +232,32 @@
       "current": "Current version:",
       "unknown": "unknown",
       "checking": "Checking for updates...",
-      "couldNotCheck": "Could not check for updates",
+      "couldNotCheck": "Could not check for updates: {error}",
       "upToDate": "Up to date",
       "available": "Update available: {version}",
-      "downloading": "Downloading update...",
-      "applying": "Applying update...",
-      "failed": "Update failed: {error}"
+      "failed": "Update failed: {error}",
+      "changesAvailable": "Update available",
+      "blocked": "Can't update automatically:",
+      "serverNoReturn": "the app server didn't come back after restarting. Check: sudo journalctl -u spettromiao-webapp -e",
+      "steps": {
+        "waiting": "Waiting for the current capture to finish...",
+        "checking": "Checking GitHub...",
+        "pulling": "Downloading the update...",
+        "installing": "Installing dependencies (this can take a few minutes)...",
+        "restarting": "Restarting the app server...",
+        "reloading": "Reloading..."
+      },
+      "issues": {
+        "check_failed": "Could not reach GitHub: {detail}",
+        "local_changes": "The app folder has local changes: {detail}",
+        "local_commits": "The app folder has {detail} local commit(s) not on GitHub",
+        "kat_not_found": "kat checkout not found, only the app will be updated",
+        "kat_check_failed": "kat can't be updated (no GitHub access?): {detail}",
+        "kat_local_changes": "kat has local changes and won't be updated: {detail}",
+        "kat_local_commits": "kat has {detail} local commit(s) not on GitHub and won't be updated",
+        "setup_changed": "The setup script changed: run ./setup-pi.sh in the app folder to finish the update.",
+        "restart_manually": "Update installed: restart the app server to use it."
+      }
     }
   },
   "history": {

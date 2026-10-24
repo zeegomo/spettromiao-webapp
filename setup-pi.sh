@@ -8,6 +8,8 @@
 #
 # Usage (from the repo checkout, e.g. /opt/spettromiao-webapp):
 #   ./setup-pi.sh
+#   ./setup-pi.sh --deps-only  # only reinstall Python deps (no sudo, no restart;
+#                              # used by the in-app updater)
 #
 # Environment overrides:
 #   KAT_DIR        where the kat repo is (cloned if missing)   [~/kat]
@@ -23,17 +25,24 @@ KAT_REPO="${KAT_REPO:-https://github.com/zeegomo/kat.git}"
 SERVICE_NAME="spettromiao-webapp"
 CALIB_DIR="$HOME/.kat/calibration"
 
+DEPS_ONLY=false
 for arg in "$@"; do
     case "$arg" in
-        -h|--help) sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --deps-only) DEPS_ONLY=true ;;
+        -h|--help) sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
     esac
 done
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# Colors only on a terminal (the in-app updater shows this output as text)
+if [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' NC=''
+fi
 
 log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -49,44 +58,46 @@ if ! grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
 fi
 
 # =============================================================================
-# System packages
+# System packages, I2C (controller board ADC) and device permissions
+# These need sudo, so --deps-only skips them
 # =============================================================================
-
-log_info "Installing system packages..."
-sudo apt-get update
-# picamera2/libcamera, gpiozero and lgpio are used from the system install
-sudo apt-get install -y \
-    git python3-venv python3-dev python3-picamera2 python3-gpiozero python3-lgpio \
-    v4l-utils i2c-tools
-
-if ! command -v rpicam-still >/dev/null; then
-    sudo apt-get install -y rpicam-apps-lite
-fi
-
-# =============================================================================
-# I2C (controller board ADC) and device permissions
-# =============================================================================
-
-if command -v raspi-config >/dev/null; then
-    sudo raspi-config nonint do_i2c 0
-else
-    log_warn "raspi-config not found, make sure I2C is enabled"
-fi
 
 RELOGIN=false
-for group in gpio i2c video; do
-    if getent group "$group" >/dev/null && ! id -nG "$USER" | grep -qw "$group"; then
-        sudo usermod -aG "$group" "$USER"
-        RELOGIN=true
+if [ "$DEPS_ONLY" = false ]; then
+    log_info "Installing system packages..."
+    sudo apt-get update
+    # picamera2/libcamera, gpiozero and lgpio are used from the system install
+    sudo apt-get install -y \
+        git python3-venv python3-dev python3-picamera2 python3-gpiozero python3-lgpio \
+        v4l-utils i2c-tools
+
+    if ! command -v rpicam-still >/dev/null; then
+        sudo apt-get install -y rpicam-apps-lite
     fi
-done
+
+    if command -v raspi-config >/dev/null; then
+        sudo raspi-config nonint do_i2c 0
+    else
+        log_warn "raspi-config not found, make sure I2C is enabled"
+    fi
+
+    for group in gpio i2c video; do
+        if getent group "$group" >/dev/null && ! id -nG "$USER" | grep -qw "$group"; then
+            sudo usermod -aG "$group" "$USER"
+            RELOGIN=true
+        fi
+    done
+fi
 
 # =============================================================================
 # Python environment
 # =============================================================================
 
 # --system-site-packages: picamera2/libcamera, gpiozero and lgpio come from apt
-if [ ! -d "$VENV_DIR" ]; then
+if [ ! -d "$VENV_DIR" ] && [ "$DEPS_ONLY" = true ]; then
+    log_error "No virtual environment at $VENV_DIR: run ./setup-pi.sh first"
+    exit 1
+elif [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment at $VENV_DIR..."
     python3 -m venv --system-site-packages "$VENV_DIR"
 elif ! grep -q "^include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg"; then
@@ -94,7 +105,9 @@ elif ! grep -q "^include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg"; th
     sed -i "s/^include-system-site-packages = .*/include-system-site-packages = true/" "$VENV_DIR/pyvenv.cfg"
 fi
 PIP="$VENV_DIR/bin/pip"
-"$PIP" install --upgrade pip
+if [ "$DEPS_ONLY" = false ]; then
+    "$PIP" install --upgrade pip
+fi
 
 # Don't let pip replace the system numpy: the apt picamera2 stack is built against it
 CONSTRAINTS="$(mktemp)"
@@ -107,12 +120,20 @@ fi
 log_info "Installing backend dependencies..."
 "$PIP" install -c "$CONSTRAINTS" -r "$APP_DIR/backend/requirements.txt"
 
-if [ ! -f "$KAT_DIR/pyproject.toml" ]; then
+if [ ! -f "$KAT_DIR/pyproject.toml" ] && [ "$DEPS_ONLY" = true ]; then
+    log_error "No kat checkout at $KAT_DIR"
+    exit 1
+elif [ ! -f "$KAT_DIR/pyproject.toml" ]; then
     log_info "Cloning kat into $KAT_DIR (private repo: git will ask for a GitHub username + token)..."
     git clone "$KAT_REPO" "$KAT_DIR"
 fi
 log_info "Installing kat from $KAT_DIR (this takes a while)..."
 "$PIP" install -c "$CONSTRAINTS" -e "$KAT_DIR"
+
+if [ "$DEPS_ONLY" = true ]; then
+    log_info "Python dependencies installed"
+    exit 0
+fi
 
 # =============================================================================
 # Calibration

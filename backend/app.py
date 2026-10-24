@@ -7,12 +7,14 @@ Serves the frontend directly from the repo root.
 
 import atexit
 import logging
+import threading
 from pathlib import Path
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 
 from .board import get_board
 from .camera import enable_high_conversion_gain, get_camera
+from .updater import Updater
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +46,10 @@ def create_app() -> Flask:
     board = get_board()
     app.config["board"] = board
     atexit.register(board.close)
+
+    # Held for a whole capture; the updater takes it so it never restarts mid-capture
+    app.config["capture_lock"] = threading.Lock()
+    app.config["updater"] = Updater(app.config["capture_lock"], camera)
 
     # Ephemeral settings (not persisted - browser owns the settings)
     app.config["settings"] = {

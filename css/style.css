@@ -1081,6 +1081,7 @@ body {
     min-height: 36px;
     display: flex;
     align-items: center;
+    white-space: pre-line;
 }
 
 .version-status:empty {

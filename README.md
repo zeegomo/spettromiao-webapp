@@ -93,12 +93,28 @@ board's `LSR` LED should light only during the exposure.
 
 ### Updating
 
+From the app: **Settings → Check for Updates**, then **Update Now**. The Pi then:
+
+1. fetches the webapp and kat repos from GitHub and fast-forwards both
+   checkouts (it refuses if the app folder has local edits or commits; kat is
+   skipped with a warning in that case, or when the Pi has no GitHub access to
+   the private kat repo)
+2. reinstalls Python dependencies with `./setup-pi.sh --deps-only` if
+   `backend/requirements.txt` or kat's `pyproject.toml` changed, rolling both
+   checkouts back if that fails
+3. restarts the backend (the gunicorn worker exits and is replaced, loading the
+   new code) and the page reloads
+
+It waits for a capture in progress to finish, and only accepts requests from
+the Pi itself (`http://localhost`). If an update changes `setup-pi.sh`, the app
+asks you to re-run it, since system packages need sudo.
+
+By hand:
+
 ```bash
 git -C ~/kat pull
 cd /opt/spettromiao-webapp && git pull && ./setup-pi.sh
 ```
-
-Re-running the script picks up new dependencies and restarts the service.
 
 ## Mobile PWA Architecture
 
@@ -203,7 +219,7 @@ git commit -m "Update webapp"
 git push
 ```
 
-The Pi-loader detects the new version and downloads updates when internet is available. Users can also check for updates manually via Settings > Check for Updates.
+Pis pick it up from Settings → Check for Updates (see [Updating](#updating)).
 
 ## File Structure
 
@@ -232,6 +248,7 @@ spettromiao-webapp/
 │   ├── board.py        # Controller v2 board (laser switch, via kat_board)
 │   ├── camera.py       # Camera interface (picamera2), HCG setup
 │   ├── routes.py       # REST API endpoints
+│   ├── updater.py      # In-app update: git pull webapp + kat, restart
 │   └── requirements.txt  # Backend pip dependencies
 ├── setup-pi.sh         # Raspberry Pi setup (packages, venv, kat, service)
 ├── spettromiao-webapp.service  # systemd unit file (setup-pi.sh fills in user/path)
