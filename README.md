@@ -45,10 +45,11 @@ cd /opt/spettromiao-webapp
 Run it as the user the service should run as (not root). It is safe to re-run,
 and it:
 
-- installs the system packages (`python3-picamera2` with the system
-  libcamera, `gpiozero`/`lgpio`, `v4l-utils`, `i2c-tools`, `rpicam-apps` if
-  missing), enables I²C and adds the user to the `gpio`, `i2c` and `video`
-  groups
+- installs the missing system packages (`python3-picamera2` with the system
+  libcamera, `gpiozero`/`lgpio`, `v4l-utils`, `i2c-tools`, `rpicam-apps`)
+  without upgrading anything already installed, so an existing libcamera and
+  picamera2 are left as they are; enables I²C and adds the user to the
+  `gpio`, `i2c` and `video` groups
 - creates `.venv` with `--system-site-packages` (picamera2's libcamera
   bindings only exist system-wide; an existing `.venv` is switched over) and
   installs `backend/requirements.txt`, keeping pip from replacing the system

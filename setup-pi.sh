@@ -66,13 +66,21 @@ RELOGIN=false
 if [ "$DEPS_ONLY" = false ]; then
     log_info "Installing system packages..."
     sudo apt-get update
-    # picamera2/libcamera, gpiozero and lgpio are used from the system install
-    sudo apt-get install -y \
-        git python3-venv python3-dev python3-picamera2 python3-gpiozero python3-lgpio \
+    # gpiozero and lgpio are used from the system install.
+    # --no-upgrade: never change packages that are already installed
+    sudo apt-get install -y --no-upgrade \
+        git python3-venv python3-dev python3-gpiozero python3-lgpio \
         v4l-utils i2c-tools
 
+    # picamera2/libcamera too, but leave whatever libcamera is installed alone
+    if /usr/bin/python3 -c "import picamera2" 2>/dev/null; then
+        log_info "picamera2 already installed, keeping the existing libcamera"
+    else
+        sudo apt-get install -y --no-upgrade python3-picamera2
+    fi
+
     if ! command -v rpicam-still >/dev/null; then
-        sudo apt-get install -y rpicam-apps-lite
+        sudo apt-get install -y --no-upgrade rpicam-apps-lite
     fi
 
     if command -v raspi-config >/dev/null; then
